@@ -1,0 +1,65 @@
+import React from 'react'
+import Link from "react-router";
+import {useForm} from "react-hook-form";
+import {zodResolver} from "@hookform/resolvers/zod";
+import {loginSchema} from "../validation/authSchemas.js";
+
+
+export const LoginPage = () => {
+    const {register,
+        handleSubmit,
+        formState: {errors, isSubmitting, isValid, touchedFields, dirtyFields},
+    } = useForm({
+        resolver: zodResolver(loginSchema),
+        mode: "onChange",
+        defaultValues: {
+            email: "",
+            password: "",
+        },
+    });
+
+    const onSubmit = async (data) => {
+        console.log(data);
+    }
+
+    return (
+        <section>
+            {/*Todo: отображение ошибки api при входе */}
+            <p>
+            </p>
+            <h2>Вход:</h2>
+            <form onSubmit={handleSubmit(onSubmit)} autoComplete="on">
+
+                <input className={
+                        errors.email
+                        ? "inputInvalid"
+                        : touchedFields.email && dirtyFields.email
+                            ? "inputValid"
+                            : "input"}
+                       type="email"
+                       autoComplete="email"
+                       placeholder="Email"
+                       {...register("email")} />
+                <p className={errors.email? "instructions instructionsError": ""}>{errors.email?.message}</p>
+
+                <input className={
+                        errors.password ? "inputInvalid"
+                        : touchedFields.password && dirtyFields.password ? "inputValid"
+                            : "input"}
+                       type="password"
+                       autoComplete="current-password"
+                       placeholder="Пароль"
+                       {...register("password")} />
+                <p className={errors.password? "instructions instructionsError": ""}>{errors.password?.message}</p>
+
+                <button type="submit" disabled={!isValid || isSubmitting}>Войти</button>
+            </form>
+            <p>
+                Еще нет аккаунта?&#160;
+                <Link to="/register" className="line">
+                    Зарегистрироваться
+                </Link>
+            </p>
+        </section>
+    )
+}
