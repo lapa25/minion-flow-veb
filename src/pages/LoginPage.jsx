@@ -1,8 +1,10 @@
-import React from 'react'
-import Link from "react-router";
+import {useState} from "react";
+import {Link, useNavigate} from "react-router";
 import {useForm} from "react-hook-form";
 import {zodResolver} from "@hookform/resolvers/zod";
 import {loginSchema} from "../validation/authSchemas.js";
+import {useLoginMutation} from "../store/auth/authApiSlice.js";
+import {getApiErrorMessage} from "../utils/getApiErrorMessage.js";
 
 
 export const LoginPage = () => {
@@ -18,14 +20,25 @@ export const LoginPage = () => {
         },
     });
 
+    const navigate = useNavigate();
+    const [apiError, setApiError] = useState("");
+
+    const [login] = useLoginMutation();
+
     const onSubmit = async (data) => {
-        console.log(data);
+        setApiError("");
+        try {
+            await login({ email: data.email, password: data.password }).unwrap()
+            navigate("/", { replace: true })
+        } catch (err) {
+            setApiError(getApiErrorMessage(err))
+        }
     }
 
     return (
         <section>
-            {/*Todo: отображение ошибки api при входе */}
-            <p>
+            <p className={apiError ? "instructions instructionsError" : "offscreen"}>
+                {apiError}
             </p>
             <h2>Вход:</h2>
             <form onSubmit={handleSubmit(onSubmit)} autoComplete="on">

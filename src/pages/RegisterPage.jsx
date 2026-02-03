@@ -1,12 +1,15 @@
-import React from 'react'
+import {useState} from 'react'
 import {zodResolver} from "@hookform/resolvers/zod";
 import {useForm} from "react-hook-form";
-import Link from "react-router";
+import {Link, useNavigate} from "react-router";
 import {registerSchema} from "../validation/authSchemas.js";
+import {useRegistrationMutation} from "../store/auth/authApiSlice.js";
+import {getApiErrorMessage} from "../utils/getApiErrorMessage.js";
 
 export const RegisterPage = () => {
     const {register,
         handleSubmit,
+        reset,
         formState: {errors, isSubmitting, isValid, touchedFields, dirtyFields},
     } = useForm({
         resolver: zodResolver(registerSchema),
@@ -19,8 +22,26 @@ export const RegisterPage = () => {
         },
     });
 
+    const navigate = useNavigate();
+    const [apiError, setApiError] = useState("");
+    const [apiSuccess, setApiSuccess] = useState("");
+
+    const [registration] = useRegistrationMutation();
+
     const onSubmit = async (data) => {
-        console.log(data);
+        setApiError("");
+        setApiSuccess("");
+
+        const {  ...payload } = data;
+
+        try {
+            await registration(payload).unwrap();
+            setApiSuccess("Регистрация успешна");
+            reset();
+            navigate("/login", { replace: true });
+        } catch (err) {
+            setApiError(getApiErrorMessage(err));
+        }
     }
 
     const fieldClass = (name) =>
@@ -28,8 +49,12 @@ export const RegisterPage = () => {
 
     return (
         <section>
-            {/* Todo: отображение ошибки api при попытке регистрации*/}
-            <p>
+            <p className={apiError ? "instructions instructionsError" : "offscreen"}>
+                {apiError}
+            </p>
+
+            <p className={apiSuccess ? "instructions instructionsSuccess" : "offscreen"}>
+                {apiSuccess}
             </p>
             <h2>Регистрация:</h2>
             <form onSubmit={handleSubmit(onSubmit)} autoComplete="on">
