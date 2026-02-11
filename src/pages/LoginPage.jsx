@@ -36,7 +36,7 @@ export const LoginPage = () => {
     }
 
     return (
-        <section>
+        <section className="authCard">
             <p className={apiError ? "instructions instructionsError" : "offscreen"}>
                 {apiError}
             </p>

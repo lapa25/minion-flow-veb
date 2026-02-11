@@ -48,7 +48,7 @@ export const RegisterPage = () => {
         errors[name] ? "inputInvalid" : (touchedFields[name] && dirtyFields[name]) ? "inputValid" : "input";
 
     return (
-        <section>
+        <section className="authCard">
             <p className={apiError ? "instructions instructionsError" : "offscreen"}>
                 {apiError}
             </p>

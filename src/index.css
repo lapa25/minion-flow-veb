@@ -1,5 +1,5 @@
 :root {
-    font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     line-height: 1.5;
     font-weight: 400;
     font-synthesis: none;
@@ -14,17 +14,20 @@
     padding: 0;
     box-sizing: border-box;
 }
-
 html {
-    font-family: 'Nunito', sans-serif;
-    font-size: 22px;
-    background: #F7F8FA;
+    width: 100%;
+    height: 100%;
+    background: #0b1220;
 }
-
 body {
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    margin: 0;
+    font-family: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    sans-serif;
+    font-size: clamp(1rem, 1.1vw + 0.75rem, 1.375rem);
+    color: #fff;
+}
+
+#root {
+    min-height: 100vh;
 }

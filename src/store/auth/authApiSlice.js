@@ -13,10 +13,21 @@ export const authApiSlice = apiSlice.injectEndpoints({
                     dispatch(setCredentials({ user: data.user, accessToken: data.accessToken }))
                 },
             }),
-            me: build.query({
-                query: () => ({ url: '/auth/me' }),
-                providesTags: ['Me'],
-            }),
+                me: build.query({
+                    query: () => ({ url: '/auth/me' }),
+                    providesTags: ['Me'],
+                    async onQueryStarted(_arg, { dispatch, queryFulfilled, getState }) {
+                        try {
+                            const { data } = await queryFulfilled
+                            const user = data?.user ?? data
+
+                            const accessToken = getState()?.auth?.accessToken ?? null
+                            dispatch(setCredentials({ user, accessToken }))
+                        } catch {
+                            // ошибки в ui
+                        }
+                    },
+                }),
             logout: build.mutation({
                 query: () => ({ url: '/auth/logout', method: 'POST' }),
                 async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
