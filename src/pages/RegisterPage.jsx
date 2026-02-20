@@ -1,10 +1,11 @@
-import {useState} from 'react'
 import {zodResolver} from "@hookform/resolvers/zod";
 import {useForm} from "react-hook-form";
 import {Link, useNavigate} from "react-router";
 import {registerSchema} from "../validation/authSchemas.js";
 import {useRegistrationMutation} from "../store/auth/authApiSlice.js";
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js";
+import {InlineLoader} from "../components/ui/InlineLoader.jsx";
+import {ErrorBanner} from "../components/ui/ErrorBanner.jsx";
 
 export const RegisterPage = () => {
     const {register,
@@ -23,24 +24,19 @@ export const RegisterPage = () => {
     });
 
     const navigate = useNavigate();
-    const [apiError, setApiError] = useState("");
-    const [apiSuccess, setApiSuccess] = useState("");
 
-    const [registration] = useRegistrationMutation();
+    const [registration, { isLoading, isError, error }] = useRegistrationMutation();
 
     const onSubmit = async (data) => {
-        setApiError("");
-        setApiSuccess("");
+        const {confirmPassword: _confirmPassword,  ...payload } = data;
+        const res = await registration(payload);
 
-        const {  ...payload } = data;
-
-        try {
-            await registration(payload).unwrap();
-            setApiSuccess("Регистрация успешна");
+        if ("data" in res) {
             reset();
-            navigate("/login", { replace: true });
-        } catch (err) {
-            setApiError(getApiErrorMessage(err));
+            navigate("/confirm-email", {
+                replace: true,
+                state: { email: payload.email },
+            });
         }
     }
 
@@ -49,13 +45,9 @@ export const RegisterPage = () => {
 
     return (
         <section className="authCard">
-            <p className={apiError ? "instructions instructionsError" : "offscreen"}>
-                {apiError}
-            </p>
-
-            <p className={apiSuccess ? "instructions instructionsSuccess" : "offscreen"}>
-                {apiSuccess}
-            </p>
+            {isError ? (
+                <ErrorBanner title="Ошибка регистрации" message={getApiErrorMessage(error)} />
+            ) : null}
             <h2>Регистрация:</h2>
             <form onSubmit={handleSubmit(onSubmit)} autoComplete="on">
 
@@ -91,7 +83,9 @@ export const RegisterPage = () => {
                 <p className={errors.confirmPassword? "instructions instructionsError": ""}>
                     {errors.confirmPassword?.message}</p>
 
-                <button type="submit" disabled={!isValid || isSubmitting}>Зарегистрироваться</button>
+                <button type="submit" disabled={!isValid || isSubmitting || isLoading}>
+                    {isLoading ? <InlineLoader label="Регистрируем..." /> : "Зарегистрироваться"}
+                </button>
             </form>
             <p>
                 Уже зарегистрированы?&#160;

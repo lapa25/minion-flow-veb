@@ -1,10 +1,12 @@
-import {useState} from "react";
-import {Link, useNavigate} from "react-router";
+import {Link, useNavigate, useLocation} from "react-router";
 import {useForm} from "react-hook-form";
 import {zodResolver} from "@hookform/resolvers/zod";
 import {loginSchema} from "../validation/authSchemas.js";
 import {useLoginMutation} from "../store/auth/authApiSlice.js";
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js";
+import {useMemo} from "react";
+import {InlineLoader} from "../components/ui/InlineLoader.jsx";
+import {ErrorBanner} from "../components/ui/ErrorBanner.jsx";
 
 
 export const LoginPage = () => {
@@ -21,26 +23,46 @@ export const LoginPage = () => {
     });
 
     const navigate = useNavigate();
-    const [apiError, setApiError] = useState("");
+    const location = useLocation();
 
-    const [login] = useLoginMutation();
+    const reason = location.state?.reason;
+    const notice = location.state?.notice;
+
+    const returnTo = useMemo(() => {
+        const from = location.state?.from;
+        if (!from) {
+            return "/";
+        }
+        const pathname = from.pathname || "/";
+        const search = from.search || "";
+        return `${pathname}${search}`;
+    }, [location.state]);
+
+    const [login, { isLoading, isError, error }] = useLoginMutation();
 
     const onSubmit = async (data) => {
-        setApiError("");
-        try {
-            await login({ email: data.email, password: data.password }).unwrap()
-            navigate("/", { replace: true })
-        } catch (err) {
-            setApiError(getApiErrorMessage(err))
+        const res = await login({ email: data.email, password: data.password });
+        if ("data" in res) {
+            navigate(returnTo, { replace: true });
         }
     }
 
     return (
         <section className="authCard">
-            <p className={apiError ? "instructions instructionsError" : "offscreen"}>
-                {apiError}
-            </p>
+            {notice ? (
+                <p className="instructions instructionsSuccess">{notice}</p>
+            ) : null}
+
+            {reason ? (
+                <p className="instructions instructionsError">{reason}</p>
+            ) : null}
+
+            {isError ? (
+                <ErrorBanner title="Ошибка входа" message={getApiErrorMessage(error)} />
+            ) : null}
+
             <h2>Вход:</h2>
+
             <form onSubmit={handleSubmit(onSubmit)} autoComplete="on">
 
                 <input className={
@@ -65,8 +87,15 @@ export const LoginPage = () => {
                        {...register("password")} />
                 <p className={errors.password? "instructions instructionsError": ""}>{errors.password?.message}</p>
 
-                <button type="submit" disabled={!isValid || isSubmitting}>Войти</button>
+                <button type="submit" disabled={!isValid || isSubmitting || isLoading}>
+                    {isLoading ? <InlineLoader label="Входим..." /> : "Войти"}
+                </button>
             </form>
+            <p>
+                <Link to="/forgot-password" className="line">
+                    Забыли пароль?
+                </Link>
+            </p>
             <p>
                 Еще нет аккаунта?&#160;
                 <Link to="/register" className="line">

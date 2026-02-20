@@ -13,6 +13,7 @@ import { AuthLayout } from "./components/layout/AuthLayout.jsx";
 
 import { ProjectsPage } from "./pages/ProjectsPage.jsx";
 import { ProfilePage } from "./pages/ProfilePage.jsx";
+import { SettingsPage } from "./pages/SettingsPage.jsx";
 
 function App() {
 
@@ -30,6 +31,7 @@ function App() {
                     <Route index element={<Navigate to="projects" replace />} />
                     <Route path="projects" element={<ProjectsPage />} />
                     <Route path="profile" element={<ProfilePage />} />
+                    <Route path="settings" element={<SettingsPage />} />
                 </Route>
             </Route>
         </Route>

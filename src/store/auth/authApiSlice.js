@@ -13,21 +13,19 @@ export const authApiSlice = apiSlice.injectEndpoints({
                     dispatch(setCredentials({ user: data.user, accessToken: data.accessToken }))
                 },
             }),
-                me: build.query({
-                    query: () => ({ url: '/auth/me' }),
-                    providesTags: ['Me'],
-                    async onQueryStarted(_arg, { dispatch, queryFulfilled, getState }) {
-                        try {
-                            const { data } = await queryFulfilled
-                            const user = data?.user ?? data
-
-                            const accessToken = getState()?.auth?.accessToken ?? null
-                            dispatch(setCredentials({ user, accessToken }))
-                        } catch {
-                            // ошибки в ui
-                        }
-                    },
-                }),
+            me: build.query({
+                query: () => ({ url: '/auth/me' }),
+                providesTags: ['Me'],
+                async onQueryStarted(_arg, { dispatch, queryFulfilled, getState }) {
+                    try {
+                        const { data } = await queryFulfilled
+                        const accessToken = getState()?.auth?.accessToken ?? null
+                        dispatch(setCredentials({ user: data.user, accessToken }))
+                    } catch {
+                        // ошибки в ui
+                    }
+                },
+            }),
             logout: build.mutation({
                 query: () => ({ url: '/auth/logout', method: 'POST' }),
                 async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
@@ -38,8 +36,28 @@ export const authApiSlice = apiSlice.injectEndpoints({
                         dispatch(apiSlice.util.resetApiState())
                     }
                 },
-        }),
+            }),
+            forgotPassword: build.mutation({
+                query: (body) => ({ url: "/auth/forgot-password", method: "POST", body }),
+            }),
+            confirmEmail: build.mutation({
+                query: (body) => ({ url: "/auth/confirm-email", method: "POST", body }),
+                invalidatesTags: ['Me'],
+            }),
+            resendConfirmEmail: build.mutation({
+                query: (body) => ({ url: "/auth/resend-confirm-email", method: "POST", body }),
+            }),
+            updateNotifications: build.mutation({
+                query: (body) => ({ url: "/auth/notifications", method: "PATCH", body }),
+                invalidatesTags: ['Me'],
+            }),
+            changePassword: build.mutation({
+                query: (body) => ({ url: "/auth/change-password", method: "POST", body }),
+            }),
     })
 })
 
-export const { useLoginMutation, useMeQuery, useLogoutMutation, useRegistrationMutation } = authApiSlice
+export const { useLoginMutation, useMeQuery, useLogoutMutation, useRegistrationMutation,
+    useForgotPasswordMutation, useConfirmEmailMutation, useResendConfirmEmailMutation,
+    useUpdateNotificationsMutation, useChangePasswordMutation}
+    = authApiSlice

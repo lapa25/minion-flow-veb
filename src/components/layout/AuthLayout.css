@@ -43,6 +43,7 @@
 .authCard input[type="email"],
 .authCard input[type="password"],
 .authCard input[type="text"],
+.authCard input[type="number"],
 .authCard button,
 .authCard textarea {
     font-family: "Nunito", sans-serif;

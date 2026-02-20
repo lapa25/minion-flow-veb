@@ -2,7 +2,7 @@ import {fetchBaseQuery} from "@reduxjs/toolkit/query";
 import {Mutex} from "async-mutex";
 import {tokenReceived, logout} from "../store/auth/authSlice.js";
 
-const BASE_URL = "";
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 const query = fetchBaseQuery({
     baseUrl: BASE_URL,
