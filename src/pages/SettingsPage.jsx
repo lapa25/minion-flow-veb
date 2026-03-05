@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 
 import {useUpdateNotificationsMutation, useChangePasswordMutation, useMeQuery}
     from "../store/auth/authApiSlice.js"
-import {selectCurrentPermissions, selectCurrentUser} from "../store/auth/authSelectors.js"
+import {selectCurrentUser} from "../store/auth/authSelectors.js"
 import { changePasswordSchema } from "../validation/authSchemas.js"
 import { getApiErrorMessage } from "../utils/getApiErrorMessage.js"
 import { ErrorBanner } from "../components/ui/ErrorBanner.jsx"
@@ -14,19 +14,11 @@ import { InlineLoader } from "../components/ui/InlineLoader.jsx"
 
 import "./AccountPages.css"
 
-const NOTIF_UPDATE_PERMS = ["account.notifications.update"]
-const CHANGE_PASSWORD_PERMS = ["account.password.change"]
-const hasAny = (need = [], stack = []) => need.some((p) => stack.includes(p))
-
 export const SettingsPage = () => {
     const user = useSelector(selectCurrentUser)
-    const permissions = useSelector(selectCurrentPermissions)
 
     const { refetch, isFetching } = useMeQuery(undefined, {
         refetchOnMountOrArgChange: false});
-
-    const canEditNotifications = hasAny(NOTIF_UPDATE_PERMS, permissions)
-    const canChangePassword = hasAny(CHANGE_PASSWORD_PERMS, permissions)
 
     const notificationDefaults = useMemo(() => {
         const n = user?.notifications || user?.settings?.notifications || {}
@@ -51,9 +43,6 @@ export const SettingsPage = () => {
     })
 
     const onSaveNotifications = async (data) => {
-        if (!canEditNotifications) {
-            return
-        }
         if (notifSuccess || notifIsError) {
             notifReset()
         }
@@ -86,9 +75,6 @@ export const SettingsPage = () => {
     }
 
     const onChangePassword = async (data) => {
-        if (!canChangePassword) {
-            return
-        }
         if (pwdSuccess || pwdIsError) {
             pwdReset()
         }
@@ -111,7 +97,7 @@ export const SettingsPage = () => {
                 </button>
             </div>
 
-            <p style={{ opacity: 0.9, marginBottom: "0.75rem" }}>
+            <p>
                 <Link to="/profile" className="line">
                     ← Назад в профиль
                 </Link>
@@ -130,17 +116,11 @@ export const SettingsPage = () => {
                     </div>
                 ) : null}
 
-                {!canEditNotifications ? (
-                    <p className="accountHint">
-                        Действие недоступно: нет прав <code>account.notifications.update</code>.
-                    </p>
-                ) : null}
-
                 <form onSubmit={notifForm.handleSubmit(onSaveNotifications)}>
                     <label className="accountCheckbox">
                         <input
                             type="checkbox"
-                            disabled={!canEditNotifications || notifLoading}
+                            disabled={notifLoading}
                             {...notifForm.register("emailNotifications", {
                                 onChange: () => (notifSuccess || notifIsError) && notifReset(),
                             })}
@@ -151,7 +131,7 @@ export const SettingsPage = () => {
                     <label className="accountCheckbox">
                         <input
                             type="checkbox"
-                            disabled={!canEditNotifications || notifLoading}
+                            disabled={notifLoading}
                             {...notifForm.register("securityAlerts", {
                                 onChange: () => (notifSuccess || notifIsError) && notifReset(),
                             })}
@@ -162,13 +142,13 @@ export const SettingsPage = () => {
                     <button
                         className="accountBtn"
                         type="submit"
-                        disabled={!canEditNotifications || notifLoading}>
+                        disabled={notifLoading}>
                         {notifLoading ? <InlineLoader label="Сохраняем..." /> : "Сохранить"}
                     </button>
                 </form>
             </div>
 
-            <div className="accountCard" style={{ marginTop: "1rem" }}>
+            <div className="accountCard">
                 <h3>Безопасность</h3>
 
                 {pwdIsError ? (
@@ -181,12 +161,6 @@ export const SettingsPage = () => {
                     </div>
                 ) : null}
 
-                {!canChangePassword ? (
-                    <p className="accountHint">
-                        Действие недоступно: нет прав <code>account.password.change</code>.
-                    </p>
-                ) : null}
-
                 <form onSubmit={pwdForm.handleSubmit(onChangePassword)} className="accountForm">
                     <div className="accountFormRow">
                         <input
@@ -194,7 +168,7 @@ export const SettingsPage = () => {
                             type="password"
                             autoComplete="current-password"
                             placeholder="Текущий пароль"
-                            disabled={!canChangePassword || pwdLoading}
+                            disabled={pwdLoading}
                             {...pwdForm.register("currentPassword", {
                                 onChange: () => (pwdSuccess || pwdIsError) && pwdReset(),
                             })}
@@ -210,7 +184,7 @@ export const SettingsPage = () => {
                             type="password"
                             autoComplete="new-password"
                             placeholder="Новый пароль"
-                            disabled={!canChangePassword || pwdLoading}
+                            disabled={pwdLoading}
                             {...pwdForm.register("newPassword", {
                                 onChange: () => (pwdSuccess || pwdIsError) && pwdReset(),
                             })}
@@ -226,7 +200,7 @@ export const SettingsPage = () => {
                             type="password"
                             autoComplete="new-password"
                             placeholder="Повторите новый пароль"
-                            disabled={!canChangePassword || pwdLoading}
+                            disabled={pwdLoading}
                             {...pwdForm.register("confirmNewPassword", {
                                 onChange: () => (pwdSuccess || pwdIsError) && pwdReset(),
                             })}
@@ -239,7 +213,7 @@ export const SettingsPage = () => {
                     <button
                         type="submit"
                         className="accountBtn"
-                        disabled={!canChangePassword || !pwdForm.formState.isValid
+                        disabled={!pwdForm.formState.isValid
                             || pwdForm.formState.isSubmitting || pwdLoading}>
                         {pwdLoading ? <InlineLoader label="Меняем..." /> : "Сменить пароль"}
                     </button>

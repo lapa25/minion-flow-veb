@@ -14,6 +14,11 @@ import { AuthLayout } from "./components/layout/AuthLayout.jsx";
 import { ProjectsPage } from "./pages/ProjectsPage.jsx";
 import { ProfilePage } from "./pages/ProfilePage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
+import {CreateProjectPage} from "./pages/CreateProjectPage.jsx";
+import {ProjectPage} from "./pages/ProjectPage.jsx";
+import {EditProjectPage} from "./pages/EditProjectPage.jsx";
+import {ProjectConfigsPage} from "./pages/ProjectConfigsPage.jsx";
+import {ProjectRunsPage} from "./pages/ProjectRunsPage.jsx";
 
 function App() {
 
@@ -30,6 +35,11 @@ function App() {
                 <Route path="/" element={<AppLayout />}>
                     <Route index element={<Navigate to="projects" replace />} />
                     <Route path="projects" element={<ProjectsPage />} />
+                    <Route path="projects/new" element={<CreateProjectPage />} />
+                    <Route path="projects/:projectId" element={<ProjectPage />} />
+                    <Route path="projects/:projectId/edit" element={<EditProjectPage />} />
+                    <Route path="projects/:projectId/configs" element={<ProjectConfigsPage />} />
+                    <Route path="projects/:projectId/runs" element={<ProjectRunsPage />} />
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="settings" element={<SettingsPage />} />
                 </Route>

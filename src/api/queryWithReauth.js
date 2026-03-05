@@ -1,10 +1,12 @@
 import {fetchBaseQuery} from "@reduxjs/toolkit/query";
 import {Mutex} from "async-mutex";
 import {tokenReceived, logout} from "../store/auth/authSlice.js";
+import {mockBaseQuery} from "./mockBaseQuery.js";
 
+const USE_MOCK = String(import.meta.env.VITE_MOCK_API ?? "").toLowerCase() === "true";
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
-const query = fetchBaseQuery({
+const fetchQuery = fetchBaseQuery({
     baseUrl: BASE_URL,
     credentials: "include",
     prepareHeaders: (headers, { getState }) => {
@@ -15,6 +17,10 @@ const query = fetchBaseQuery({
         return headers
     },
 })
+
+const query = USE_MOCK
+    ? async (args) => mockBaseQuery(args)
+    : fetchQuery
 
 const mutex = new Mutex();
 

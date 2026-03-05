@@ -34,6 +34,10 @@
     margin-bottom: 0.75rem;
 }
 
+.accountPage p {
+    margin-bottom: 0.75rem;
+}
+
 .accountRow {
     display: flex;
     align-items: baseline;

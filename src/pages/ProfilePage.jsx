@@ -6,19 +6,9 @@ import { selectCurrentUser } from "../store/auth/authSelectors.js"
 import { getApiErrorMessage } from "../utils/getApiErrorMessage.js"
 import { ErrorBanner } from "../components/ui/ErrorBanner.jsx"
 import { InlineLoader } from "../components/ui/InlineLoader.jsx"
+import { formatDateTime } from "../utils/datetime.js";
 
 import "./AccountPages.css"
-
-const formatDateTime = (value) => {
-    if (!value) {
-        return "—"
-    }
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) {
-        return String(value)
-    }
-    return d.toLocaleString()
-}
 
 const formatMoney = (amount, currency) => {
     if (amount === null || amount === undefined) {
