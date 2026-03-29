@@ -197,6 +197,16 @@ p{
         grid-template-columns: 1fr;
     }
 }
+.projectsField{
+    display: flex;
+    flex-direction: column;
+}
+
+.versions{
+    display: flex;
+    flex-direction: column;
+
+}
 
 .projectsPills {
     display: flex;

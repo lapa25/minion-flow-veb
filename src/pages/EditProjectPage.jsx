@@ -14,6 +14,7 @@ import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 
 import "./ProjectsPages.css"
 import {getProjectRole} from "../utils/projectRole.js";
+import {getProjectPermissions} from "../utils/projectPermissions.js";
 
 export const EditProjectPage = () => {
     const { projectId } = useParams()
@@ -36,7 +37,7 @@ export const EditProjectPage = () => {
         useUpdateProjectMutation()
 
     const projectRole = getProjectRole(project, currentUser)
-    const canEditProject = projectRole === "owner"
+    const permissions = getProjectPermissions(projectRole)
 
     const form = useForm({
         resolver: zodResolver(projectUpsertSchema),
@@ -53,7 +54,7 @@ export const EditProjectPage = () => {
     }
 
     const onSubmit = async (values) => {
-        if (!canEditProject) {
+        if (!permissions.canManageMembers) {
             return
         }
         const payload = {
@@ -84,7 +85,7 @@ export const EditProjectPage = () => {
                 </div>
             </div>
 
-            {!canEditProject ? (
+            {!permissions.canManageProject ? (
                 <ErrorBanner
                     title="Недостаточно прав"
                     message="Действие недоступно: изменять данные о проекте может только владелец"
@@ -115,7 +116,7 @@ export const EditProjectPage = () => {
                         <input
                             className={fieldClass("name")}
                             type="text"
-                            disabled={!canEditProject || isSaving}
+                            disabled={!permissions.canManageProject || isSaving}
                             {...form.register("name")}
                         />
                         <p className={form.formState.errors.name ? "instructions instructionsError" : ""}>
@@ -127,7 +128,7 @@ export const EditProjectPage = () => {
                         <label>Описание</label>
                         <textarea
                             className={"projectsTextarea" + (form.formState.errors.description ? " inputInvalid" : "")}
-                            disabled={!canEditProject || isSaving}
+                            disabled={!permissions.canManageProject || isSaving}
                             {...form.register("description")}
                         />
                         <p className={form.formState.errors.description ? "instructions instructionsError" : ""}>
@@ -138,7 +139,7 @@ export const EditProjectPage = () => {
                     <label className="projectsPills" style={{ alignItems: "center" }}>
                         <input
                             type="checkbox"
-                            disabled={!canEditProject || isSaving}
+                            disabled={!permissions.canManageProject || isSaving}
                             {...form.register("is_active")}
                         />
                         <span>Проект активен</span>
@@ -148,7 +149,7 @@ export const EditProjectPage = () => {
                         <button
                             className="projectsBtn"
                             type="submit"
-                            disabled={!canEditProject || !form.formState.isValid || isSaving || form.formState.isSubmitting}>
+                            disabled={!permissions.canManageProject || !form.formState.isValid || isSaving || form.formState.isSubmitting}>
                             {isSaving ? <InlineLoader label="Сохраняем..." /> : "Сохранить"}
                         </button>
                         <Link

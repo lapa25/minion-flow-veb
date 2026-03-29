@@ -1,5 +1,5 @@
-import {useEffect, useMemo, useRef, useState} from "react"
-import {Link, useNavigate, useSearchParams} from "react-router-dom"
+import {useCallback, useMemo} from "react"
+import {Link, useNavigate} from "react-router-dom"
 
 import {ErrorBanner} from "../components/ui/ErrorBanner.jsx"
 import {InlineLoader} from "../components/ui/InlineLoader.jsx"
@@ -9,78 +9,42 @@ import {formatDateTime} from "../utils/datetime.js"
 
 import "./ProjectsPages.css"
 import {PROJECT_ROLE} from "../utils/projectRole.js";
+import {useListSearchParams} from "../utils/search.js";
+import {DebouncedSearchInput} from "../components/ui/DebouncedSearchInput.jsx";
 
-const asInt = (v, fallback) => {
-    const n = parseInt(String(v ?? ""), 10)
-    return Number.isFinite(n) && n > 0 ? n : fallback
+const PROJECTS_PAGE_DEFAULTS = {
+    q: "",
+    status: "all",
+    sort: "created_desc",
+    page: 1,
+    pageSize: 10,
 }
 
 export const ProjectsPage = () => {
     const navigate = useNavigate()
-    const [sp, setSp] = useSearchParams()
 
-    const q = sp.get("q") ?? ""
-    const status = sp.get("status") ?? "all"
-    const sort = sp.get("sort") ?? "created_desc"
-    const page = asInt(sp.get("page"), 1)
-    const pageSize = asInt(sp.get("pageSize"), 10)
+    const {
+        params: {q, status, sort, page, pageSize}, updateParam} =
+        useListSearchParams(PROJECTS_PAGE_DEFAULTS)
 
     const queryArgs = useMemo(
-        () => ({q: q || undefined, status, sort, page, pageSize}),
+        () => ({q: q || undefined, status: status !== "all" ? status : undefined,
+            sort, page, pageSize}),
         [q, status, sort, page, pageSize]
     )
 
-    const { data, isFetching, isError, error, refetch } = useGetProjectsQuery(queryArgs, {
+    const {data, isFetching, isError, error, refetch} = useGetProjectsQuery(queryArgs, {
         refetchOnMountOrArgChange: true,
     })
 
-    const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
-    const total = typeof data?.total === "number" ? data.total : items.length
+    const items = data?.items ?? []
+    const total = data?.total ?? 0
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-    const [search, setSearch] = useState(q)
-
-    const spRef = useRef(sp)
-    useEffect(() => {
-        spRef.current = sp
-    }, [sp])
-
-    useEffect(() => {
-        setSearch(q)
-    }, [q])
-
-    useEffect(() => {
-        if (search === q) {
-            return
-        }
-        const t = setTimeout(() => {
-            const next = new URLSearchParams(spRef.current)
-            const v = search.trim()
-            if (v) {
-                next.set("q", v)
-            }
-            else {
-                next.delete("q")
-            }
-            next.set("page", "1")
-            setSp(next, { replace: true })
-        }, 350)
-        return () => clearTimeout(t)
-    }, [search, q, setSp])
-
-    const updateParam = (key, value) => {
-        const next = new URLSearchParams(sp)
-        if (value === undefined || value === null || value === "") {
-            next.delete(key)
-        }
-        else {
-            next.set(key, String(value))
-        }
-        if (key !== "page") {
-            next.set("page", "1")
-        }
-        setSp(next, { replace: true })
-    }
+    const commitSearch = useCallback(
+        (value) => updateParam("q", value),
+        [updateParam]
+    )
 
     return (
         <section className="projectsPage">
@@ -101,9 +65,9 @@ export const ProjectsPage = () => {
                         type="button">
                         {isFetching ? <InlineLoader label="Обновляем..." /> : "Обновить"}
                     </button>
-                        <Link className="projectsBtn" to="/projects/new">
-                            Создать проект
-                        </Link>
+                    <Link className="projectsBtn" to="/projects/new">
+                        Создать проект
+                    </Link>
                 </div>
             </div>
 
@@ -118,12 +82,13 @@ export const ProjectsPage = () => {
             <div className="projectsCard">
                 <h3>Фильтры</h3>
                 <div className="projectsFilters">
-                    <input
-                        className="projectsInput"
-                        type="text"
+                    <DebouncedSearchInput
+                        key={q}
+                        initialValue={q}
                         placeholder="Поиск по названию"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}/>
+                        className="projectsInput"
+                        onCommit={commitSearch}
+                    />
 
                     <select
                         className="projectsSelect"
@@ -192,13 +157,15 @@ export const ProjectsPage = () => {
                             className="projectsBtn projectsBtnSecondary"
                             onClick={() => updateParam("page", Math.max(1, page - 1))}
                             disabled={page <= 1 || isFetching}
-                            type="button"> Назад
+                            type="button">
+                            Назад
                         </button>
                         <button
                             className="projectsBtn projectsBtnSecondary"
                             onClick={() => updateParam("page", Math.min(totalPages, page + 1))}
                             disabled={page >= totalPages || isFetching}
-                            type="button"> Вперёд
+                            type="button">
+                            Вперёд
                         </button>
                     </div>
                 </div>

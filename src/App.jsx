@@ -19,6 +19,9 @@ import {ProjectPage} from "./pages/ProjectPage.jsx";
 import {EditProjectPage} from "./pages/EditProjectPage.jsx";
 import {ProjectConfigsPage} from "./pages/ProjectConfigsPage.jsx";
 import {ProjectRunsPage} from "./pages/ProjectRunsPage.jsx";
+import {CreateConfigPage} from "./pages/CreateConfigPage.jsx";
+import {ConfigDetailsPage} from "./pages/ConfigDetailsPage.jsx";
+import {EditConfigPage} from "./pages/EditConfigPage.jsx";
 
 function App() {
 
@@ -39,6 +42,9 @@ function App() {
                     <Route path="projects/:projectId" element={<ProjectPage />} />
                     <Route path="projects/:projectId/edit" element={<EditProjectPage />} />
                     <Route path="projects/:projectId/configs" element={<ProjectConfigsPage />} />
+                    <Route path="/projects/:projectId/configs/new" element={<CreateConfigPage />} />
+                    <Route path="/projects/:projectId/configs/:configId" element={<ConfigDetailsPage />} />
+                    <Route path="/projects/:projectId/configs/:configId/edit" element={<EditConfigPage />} />
                     <Route path="projects/:projectId/runs" element={<ProjectRunsPage />} />
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="settings" element={<SettingsPage />} />

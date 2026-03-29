@@ -16,6 +16,7 @@ import "./ProjectsPages.css"
 import {formatDateTime} from "../utils/datetime.js"
 import {inviteSchema} from "../validation/projectSchemas.js"
 import {getProjectRole, MANAGE_ROLE, PROJECT_ROLE} from "../utils/projectRole.js";
+import {getProjectPermissions} from "../utils/projectPermissions.js"
 
 export const ProjectPage = () => {
     const { projectId } = useParams()
@@ -42,19 +43,19 @@ export const ProjectPage = () => {
     const [removeMember, { isLoading: removeMemberLoading }] = useRemoveProjectMemberMutation()
 
     const projectRole = getProjectRole(project, currentUser)
-    const isOwner = projectRole === "owner"
+    const permissions = getProjectPermissions(projectRole)
 
     const inviteForm = useForm({
         resolver: zodResolver(inviteSchema),
         mode: "onChange",
         defaultValues: {
             email: "",
-            role: "reader",
+            role: "user",
         },
     })
 
     const onDelete = async () => {
-        if (!isOwner) {
+        if (!permissions.canManageProject) {
             return
         }
         if (!window.confirm("Удалить проект? Действие необратимо")) {
@@ -67,7 +68,7 @@ export const ProjectPage = () => {
     }
 
     const onInvite = async (values) => {
-        if (!isOwner) {
+        if (!permissions.canManageMembers) {
             return
         }
         const res = await inviteMember({
@@ -83,7 +84,7 @@ export const ProjectPage = () => {
     }
 
     const onChangeRole = async (memberId, role) => {
-        if (!isOwner) {
+        if (!permissions.canManageMembers) {
             return
         }
         await updateMember({ projectId, memberId, role })
@@ -91,7 +92,7 @@ export const ProjectPage = () => {
     }
 
     const onRemove = async (memberId, role) => {
-        if (!isOwner || role === "owner") {
+        if (!permissions.canManageMembers || role === "owner") {
             return
         }
         if (!window.confirm("Удалить участника из проекта?")) {
@@ -100,8 +101,6 @@ export const ProjectPage = () => {
         await removeMember({ projectId, memberId })
         refetchMembers()
     }
-
-    const limits = project?.limits || null
 
     return (
         <section className="projectsPage">
@@ -122,13 +121,13 @@ export const ProjectPage = () => {
                         {isFetching ? <InlineLoader label="Обновляем..." /> : "Обновить"}
                     </button>
 
-                    {isOwner ? (
+                    {permissions.canManageProject ? (
                         <Link className="projectsBtn" to={`/projects/${projectId}/edit`}>
                             Редактировать
                         </Link>
                     ) : null}
 
-                    {isOwner ? (
+                    {permissions.canManageProject ? (
                         <button className="projectsBtn" onClick={onDelete} disabled={isDeleting} type="button">
                             {isDeleting ? <InlineLoader label="Удаляем..." /> : "Удалить"}
                         </button>
@@ -165,31 +164,6 @@ export const ProjectPage = () => {
                 <p className="projectsHint">
                     {project?.description ? project.description : "Описание не задано"}
                 </p>
-            </div>
-            <div className="projectsCard">
-                <h3>Ограничения проекта</h3>
-                {!limits ? (
-                    <p className="projectsHint">Лимиты не заданы</p>
-                ) : (
-                    <div className="projectsTableWrap">
-                        <table className="projectsTable">
-                            <thead>
-                            <tr>
-                                <th>Параметр</th>
-                                <th>Значение</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {Object.entries(limits).map(([k, v]) => (
-                                <tr key={k}>
-                                    <td>{k}</td>
-                                    <td>{String(v)}</td>
-                                </tr>
-                            ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
             </div>
 
             <div className="projectsCard">
@@ -233,7 +207,7 @@ export const ProjectPage = () => {
                                     <tr key={m.id}>
                                         <td>{m.email ?? "—"}</td>
                                         <td>
-                                            {isOwner && !isOwnerMember ? (
+                                            {permissions.canManageMembers && !isOwnerMember ? (
                                                 <select
                                                     className="projectsSelect"
                                                     value={role}
@@ -251,7 +225,7 @@ export const ProjectPage = () => {
                                         </td>
                                         <td>{formatDateTime(m.created_at)}</td>
                                         <td>
-                                            {!isOwnerMember && isOwner ? (
+                                            {!isOwnerMember && permissions.canManageMembers ? (
                                                 <button
                                                     className="projectsBtn projectsBtnDelete"
                                                     disabled={removeMemberLoading}
@@ -278,7 +252,7 @@ export const ProjectPage = () => {
                     </div>
                 ) : null}
 
-                {isOwner ? (
+                {permissions.canManageMembers ? (
                     <form className="projectsForm" onSubmit={inviteForm.handleSubmit(onInvite)}>
                         <h4>Пригласить участника</h4>
 
