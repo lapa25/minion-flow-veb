@@ -4,7 +4,8 @@ import {queryWithReauth} from "./queryWithReauth.js";
 export const apiSlice = createApi({
     reducerPath: "api",
     baseQuery: queryWithReauth,
-    tagTypes: ["Me", "Project", "Projects", "ProjectMembers", "ProjectConfig", "ProjectConfigs"],
+    tagTypes: ["Me", "Project", "Projects", "ProjectMembers", "ProjectConfig", "ProjectConfigs",
+        "ProjectTask", "ProjectTasks"],
     endpoints: () => ({
     })
 })

@@ -1,5 +1,3 @@
-import { normalizeProjectRole } from "./projectRole.js"
-
 const PROJECT_PERMISSIONS = {
     owner: {
         canManageProject: true,
@@ -11,7 +9,7 @@ const PROJECT_PERMISSIONS = {
         canManageArtifacts: true,
         canDownloadArtifacts: true,
         canManageInputs: true,
-        canManageRuns: true
+        canManageTasks: true
     },
 
     maintainer: {
@@ -24,7 +22,7 @@ const PROJECT_PERMISSIONS = {
         canManageArtifacts: true,
         canDownloadArtifacts: true,
         canManageInputs: true,
-        canManageRuns: true
+        canManageTasks: true
     },
 
     user: {
@@ -37,13 +35,12 @@ const PROJECT_PERMISSIONS = {
         canManageArtifacts: false,
         canDownloadArtifacts: false,
         canManageInputs: true,
-        canManageRuns: true
+        canManageTasks: true
     }
 }
 
 export function getProjectPermissions(role) {
-    const normalizedRole = normalizeProjectRole(role)
     return {
-        ...PROJECT_PERMISSIONS[normalizedRole],
+        ...PROJECT_PERMISSIONS[role],
     }
 }

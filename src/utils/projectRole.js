@@ -4,23 +4,17 @@ export const PROJECT_ROLE = {
     user: "Пользователь",
 }
 
-export const MANAGE_ROLE = ["maintainer", "user"]
+export const MANAGE_ROLE = ["MAINTAINER", "USER"]
 
-export function normalizeProjectRole(role) {
-    return Object.keys(PROJECT_ROLE).includes(role)
-        ? role : "user"
+const BACKEND_ROLE_TO_UI = {
+    OWNER: "owner",
+    MAINTAINER: "maintainer",
+    USER: "user",
+}
+export const getProjectRole = (members, currentUserId) => {
+    const currentMember = (members ?? []).find((item) => item.userId === currentUserId)
+    return fromBackendProjectRole(currentMember?.memberRole)
 }
 
-export function getProjectRole(project, currentUser) {
-    if (project?.current_user_role) {
-        return normalizeProjectRole(project.current_user_role);
-    }
-
-    const currentEmail = String(currentUser?.email || "").trim().toLowerCase()
-    const members = Array.isArray(project?.members) ? project.members : []
-    const member = members.find(
-        (item) => String(item?.email || "").trim().toLowerCase() === currentEmail,
-    );
-
-    return normalizeProjectRole(member?.role);
-}
+export const fromBackendProjectRole = (memberRole) =>
+    BACKEND_ROLE_TO_UI[memberRole] ?? "user"

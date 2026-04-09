@@ -1,14 +1,14 @@
 import {useCallback} from "react"
-import {Link, useParams} from "react-router-dom"
+import  {useParams, Link} from "react-router-dom"
 import {DebouncedSearchInput} from "../components/ui/DebouncedSearchInput.jsx"
 import {useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
-import {formatDateTime} from "../utils/datetime.js"
+import {useLazyGetProjectTasksQuery} from "../store/tasks/tasksApiSlice.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
+import {formatDateTime} from "../utils/datetime.js"
 import {PROJECT_ROLE} from "../utils/projectRole.js"
 import "./ProjectsPages.css"
-import {useLazyGetProjectConfigQuery, useLazyGetProjectConfigsQuery} from "../store/configs/configsApiSlice.js";
-import {loadAllPages} from "../utils/loadAllPages.js";
 import {useAsyncList} from "../hooks/useAsyncList.js";
+import {loadAllPages} from "../utils/loadAllPages.js";
 import {useClientList} from "../hooks/useClientList.js";
 import {ListPageShell} from "../components/lists/ListPageShell.jsx";
 import {PageHeader} from "../components/layout/PageHeader.jsx";
@@ -20,74 +20,70 @@ import {ListPagination} from "../components/lists/ListPagination.jsx";
 import {QueryBoundary} from "../components/guards/QueryBoundary.jsx";
 import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx";
 
-const CONFIGS_PAGE_DEFAULTS = {
+const TASKS_PAGE_DEFAULTS = {
     q: "",
-    type: "all",
+    status: "all",
     sort: "created_desc",
     page: 1,
     pageSize: 10,
 }
 
-const CONFIGS_SORTERS = {
+const TASKS_SORTERS = {
     created_desc: (a, b) =>
         String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")),
     created_asc: (a, b) =>
         String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")),
-    name_asc: (a, b) =>
-        String(a.alias ?? "").localeCompare(String(b.alias ?? "")),
-    name_desc: (a, b) =>
-        String(b.alias ?? "").localeCompare(String(a.alias ?? "")),
+    done_desc: (a, b) =>
+        String(b.doneAt ?? "").localeCompare(String(a.doneAt ?? "")),
+    done_asc: (a, b) =>
+        String(a.doneAt ?? "").localeCompare(String(b.doneAt ?? "")),
 }
-
-const filterConfigs = (items, {q, type}) => {
+const filterTasks = (items, {q, status}) => {
     let list = [...items]
     const needle = String(q ?? "").trim().toLowerCase()
+
     if (needle) {
         list = list.filter((item) =>
-            String(item.alias ?? "").toLowerCase().includes(needle)
+            String(item.taskId ?? "").toLowerCase().includes(needle) ||
+            String(item.jarAlias ?? "").toLowerCase().includes(needle) ||
+            String(item.inputAlias ?? "").toLowerCase().includes(needle) ||
+            String(item.configAlias ?? "").toLowerCase().includes(needle)
         )
     }
-    if (type !== "all") {
-        list = list.filter((item) => item?.config?.type === type)
+    if (status !== "all") {
+        list = list.filter((item) => item.status === status)
     }
     return list
 }
 
-const sortConfigs = (items, {sort}) => {
-    const sorter = CONFIGS_SORTERS[sort]
+const sortTasks = (items, {sort}) => {
+    const sorter = TASKS_SORTERS[sort]
     if (!sorter) {
         return [...items]
     }
     return [...items].sort(sorter)
 }
 
-const ProjectConfigsContent = ({projectId, project, projectRole, permissions, isResolved}) => {
-    const [triggerGetProjectConfigs] = useLazyGetProjectConfigsQuery()
-    const [triggerGetProjectConfig] = useLazyGetProjectConfigQuery()
+const ProjectTasksContent = ({projectId, project, projectRole, permissions, isResolved}) => {
+    const [triggerGetProjectTasks] = useLazyGetProjectTasksQuery()
 
-    const loadConfigsData = useCallback(async () => {
+    const loadTasksData = useCallback(async () => {
         if (!projectId) {
             return []
         }
-        const allLight = await loadAllPages((params) =>
-            triggerGetProjectConfigs({ projectId, ...params }).unwrap()
+        return loadAllPages((params) =>
+            triggerGetProjectTasks({ projectId, ...params }).unwrap()
         )
-        return Promise.all(
-            allLight.map((item) => triggerGetProjectConfig({
-                    projectId,
-                    configId: item.configId
-            }).unwrap())
-        )
-    }, [projectId, triggerGetProjectConfigs, triggerGetProjectConfig])
+    }, [projectId, triggerGetProjectTasks])
 
-    const {items: allConfigs, isLoading: isLoadingAll, error: loadError, reload: loadConfigs} =
-        useAsyncList({enabled: Boolean(projectId) && isResolved && permissions?.canViewConfigs,
-        loader: loadConfigsData,
+    const {items: allTasks, isLoading: isLoadingAll, error: loadError, reload: loadTasks} = useAsyncList({
+        enabled: Boolean(projectId) && isResolved && permissions?.canManageTasks,
+        loader: loadTasksData,
     })
 
-    const {params: {q, type, sort, page, pageSize}, updateParam, visibleItems: visibleConfigs,
-        total, totalPages} = useClientList({items: allConfigs, defaults: CONFIGS_PAGE_DEFAULTS,
-        filterFn: filterConfigs, sortFn: sortConfigs})
+    const {params: {q, status, sort, page, pageSize}, updateParam, visibleItems: visibleTasks,
+        total, totalPages} = useClientList({
+        items: allTasks, defaults: TASKS_PAGE_DEFAULTS, filterFn: filterTasks, sortFn: sortTasks})
 
     const commitSearch = useCallback(
         (value) => updateParam("q", value),
@@ -97,44 +93,43 @@ const ProjectConfigsContent = ({projectId, project, projectRole, permissions, is
     return (
         <ListPageShell>
             <PageHeader
-                title="Конфигурации"
+                title="Запуски"
                 backTo={`/projects/${projectId}`}
                 backLabel="Назад к проекту"
                 actions={
-                    <>
-                        <RefreshButton
-                            onClick={loadConfigs}
-                            isLoading={isLoadingAll}
-                        />
-                        {permissions?.canManageConfigs ? (
-                            <Link className="projectsBtn" to={`/projects/${projectId}/configs/new`}>
-                                Создать конфигурацию
-                            </Link>
-                        ) : null}
-                    </>
+                    <RefreshButton
+                        onClick={loadTasks}
+                        isLoading={isLoadingAll}
+                    />
                 }
             />
             <ListSummaryCard>
                 <span className="pill">Проект: {project?.projectName ?? "—"}</span>
-                <span className="pill">Моя роль: {PROJECT_ROLE[projectRole] ?? projectRole}</span>
-                <span className="pill">Всего: {total}</span>
+                <span className="pill">Моя роль: {PROJECT_ROLE[projectRole]}</span>
+                <span className="pill">Всего запусков: {total}</span>
             </ListSummaryCard>
             <ListFiltersCard>
                 <DebouncedSearchInput
                     key={q}
                     initialValue={q}
-                    placeholder="Поиск по alias"
+                    placeholder="Поиск по taskId / jar / input / config"
                     className="projectsInput"
                     onCommit={commitSearch}
                 />
                 <select
                     className="projectsSelect"
-                    value={type}
-                    onChange={(e) => updateParam("type", e.target.value)}
+                    value={status}
+                    onChange={(e) => updateParam("status", e.target.value)}
                 >
-                    <option value="all">Все типы</option>
-                    <option value="stateless">stateless</option>
-                    <option value="stateful">stateful</option>
+                    <option value="all">Все статусы</option>
+                    <option value="CREATED">CREATED</option>
+                    <option value="STARTING">STARTING</option>
+                    <option value="taskNING">taskNING</option>
+                    <option value="FINISHED">FINISHED</option>
+                    <option value="TIME_OUT">TIME_OUT</option>
+                    <option value="CANCELED">CANCELED</option>
+                    <option value="FAILED">FAILED</option>
+                    <option value="DONE">DONE</option>
                 </select>
                 <select
                     className="projectsSelect"
@@ -143,17 +138,17 @@ const ProjectConfigsContent = ({projectId, project, projectRole, permissions, is
                 >
                     <option value="created_desc">Сначала новые</option>
                     <option value="created_asc">Сначала старые</option>
-                    <option value="name_asc">Alias A→Z</option>
-                    <option value="name_desc">Alias Z→A</option>
+                    <option value="done_desc">Сначала поздно завершённые</option>
+                    <option value="done_asc">Сначала рано завершённые</option>
                 </select>
             </ListFiltersCard>
             <ListTableCard
                 title="Список"
                 error={loadError}
-                errorTitle="Не удалось загрузить конфигурации"
-                onRetry={loadConfigs}
-                isEmpty={!isLoadingAll && !visibleConfigs.length}
-                emptyText="Конфигураций пока нет"
+                errorTitle="Не удалось загрузить запуски"
+                onRetry={loadTasks}
+                isEmpty={!isLoadingAll && !visibleTasks.length}
+                emptyText="Запусков пока нет"
                 footer={
                     <ListPagination
                         page={page}
@@ -169,26 +164,33 @@ const ProjectConfigsContent = ({projectId, project, projectRole, permissions, is
                     <table className="projectsTable">
                         <thead>
                         <tr>
-                            <th>Alias</th>
-                            <th>Тип</th>
-                            <th>Owner ID</th>
-                            <th>Создана</th>
+                            <th>Task ID</th>
+                            <th>Status</th>
+                            <th>Jar</th>
+                            <th>Input</th>
+                            <th>Config</th>
+                            <th>Создан</th>
+                            <th>Завершён</th>
                         </tr>
                         </thead>
+
                         <tbody>
-                        {visibleConfigs.map((config) => (
-                            <tr key={config.configId} className="projectsRowLink">
+                        {visibleTasks.map((task) => (
+                            <tr key={task.taskId} className="projectsRowLink">
                                 <td>
                                     <Link
-                                        to={`/projects/${projectId}/configs/${config.configId}`}
+                                        to={`/projects/${project.projectId}/tasks/${task.taskId}`}
                                         className="projectsTableMainLink"
                                     >
-                                        {config.alias ?? "—"}
+                                        {task.taskId}
                                     </Link>
                                 </td>
-                                <td>{config?.config?.type ?? "—"}</td>
-                                <td>{config.ownerId ?? "—"}</td>
-                                <td>{config.createdAt ? formatDateTime(config.createdAt) : "—"}</td>
+                                <td>{task.status ?? "—"}</td>
+                                <td>{task.jarAlias ?? "—"}</td>
+                                <td>{task.inputAlias ?? "—"}</td>
+                                <td>{task.configAlias ?? "—"}</td>
+                                <td>{task.createdAt ? formatDateTime(task.createdAt) : "—"}</td>
+                                <td>{task.doneAt ? formatDateTime(task.doneAt) : "—"}</td>
                             </tr>
                         ))}
                         </tbody>
@@ -199,11 +201,11 @@ const ProjectConfigsContent = ({projectId, project, projectRole, permissions, is
     )
 }
 
-export const ProjectConfigsPage = () => {
+export const ProjectTasksPage = () => {
     const {projectId} = useParams()
 
-    const {data: project, isFetching: isProjectFetching, isError: isProjectError, error: projectError,
-        refetch: refetchProject} = useGetProjectQuery(projectId, {
+    const {data: project, isFetching: isProjectFetching, isError: isProjectError,
+        error: projectError, refetch: refetchProject} = useGetProjectQuery(projectId, {
         refetchOnMountOrArgChange: true,
     })
 
@@ -216,15 +218,15 @@ export const ProjectConfigsPage = () => {
             onRetry={refetchProject}
             loadingLabel="Загружаем проект..."
             errorTitle="Не удалось загрузить проект"
-            errorMessage={getApiErrorMessage(projectError, "Ошибка загрузки проекта")}
+            errorMessage={getApiErrorMessage(projectError)}
         >
             <ProjectPermissionsBoundary
                 projectId={projectId}
-                permission="canViewConfigs"
-                deniedMessage="У вас нет доступа к просмотру конфигураций этого проекта"
+                permission="canManageTasks"
+                deniedMessage="У вас нет доступа к просмотру запусков этого проекта"
             >
                 {({projectRole, permissions, isResolved}) => (
-                    <ProjectConfigsContent
+                    <ProjectTasksContent
                         projectId={projectId}
                         project={project}
                         projectRole={projectRole}

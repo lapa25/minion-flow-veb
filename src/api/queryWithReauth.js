@@ -19,7 +19,7 @@ const fetchQuery = fetchBaseQuery({
 })
 
 const query = USE_MOCK
-    ? async (args) => mockBaseQuery(args)
+    ? async (args, api, extraOptions) => mockBaseQuery(args, api, extraOptions)
     : fetchQuery
 
 const mutex = new Mutex();
@@ -32,11 +32,12 @@ export const queryWithReauth = async (args, api, extraOptions) => {
             const release = await mutex.acquire()
             try{
                 const newRes = await query({
-                    url: "/auth/refresh",
+                    url: "/identity-service/api/sessions/refresh",
                     method: "POST",
+                    body: {}
                 }, api, extraOptions)
-                if (newRes.data?.accessToken) {
-                    api.dispatch(tokenReceived({accessToken: newRes.data.accessToken}))
+                if (newRes.data?.accessJWT) {
+                    api.dispatch(tokenReceived({accessToken: newRes.data.accessJWT}))
                     res = await query(args, api, extraOptions)
                 } else {
                     api.dispatch(logout())

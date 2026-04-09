@@ -1,7 +1,8 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
 import { useLogoutMutation } from "../../store/auth/authApiSlice.js";
 import { selectCurrentUser } from "../../store/auth/authSelectors.js";
+import { logout, setAuthTransition } from "../../store/auth/authSlice.js";
 import { InlineLoader } from "../ui/InlineLoader.jsx";
 import { ErrorBanner } from "../ui/ErrorBanner.jsx";
 import { getApiErrorMessage } from "../../utils/getApiErrorMessage.js";
@@ -15,8 +16,22 @@ const navLinkStyle = ({ isActive }) => ({
 
 export const AppLayout = () => {
     const user = useSelector(selectCurrentUser);
-    const [logout, { isLoading: isLogoutLoading, isError, error }] =
-        useLogoutMutation()
+    const dispatch = useDispatch()
+    const navigate = useNavigate()
+    const [logoutRequest, { isLoading: isLoggingOut, isError, error}] = useLogoutMutation()
+    const handleLogout = async () => {
+        dispatch(setAuthTransition("loggingOut"))
+        try {
+            await logoutRequest().unwrap()
+        } finally {
+            dispatch(logout())
+            navigate("/login", {replace: true,
+                state: {
+                    notice: "Вы вышли из системы",
+                },
+            })
+        }
+    }
     return (
         <div className="appShell">
             <header className="appHeader">
@@ -30,10 +45,9 @@ export const AppLayout = () => {
                     </NavLink>
                 </nav>
                 <div className="appUser">
-                    <span className="appUserName">{user?.login || user?.email || ""}</span>
-                    <button className="appUserLogoutButton" onClick={() => logout()}
-                            disabled={isLogoutLoading}>
-                        {isLogoutLoading ? <InlineLoader label="Выход..." /> : "Выйти"}
+                    <span className="appUserName">{user?.username || user?.email || ""}</span>
+                    <button className="appUserLogoutButton" onClick={handleLogout} disabled={isLoggingOut} type="button">
+                        {isLoggingOut ? <InlineLoader label="Выход..." /> : "Выйти"}
                     </button>
                 </div>
             </header>

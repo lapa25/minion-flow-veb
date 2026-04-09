@@ -8,12 +8,11 @@ export const projectUpsertSchema = z.object({
         .max(1000, "Описание должно быть не длиннее 1000 символов")
         .optional()
         .or(z.literal("")),
-    is_active: z.boolean().optional(),
 });
 
 export const inviteSchema = z.object({
-    email: z.email("Должен содержать символ @ и домен (например, gmail.com)"),
-    role: z.enum(["maintainer", "user"], {
+    username: z.string().trim().min(1, "Укажите username"),
+    memberRole: z.enum(["MAINTAINER", "USER"], {
         error: () => ({ message: "Можно назначить только роль мейнтейнера или пользователя" }),
     }),
 });

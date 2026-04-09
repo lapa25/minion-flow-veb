@@ -3,27 +3,25 @@ import {apiSlice} from "../../api/apiSlice.js"
 export const configsApiSlice = apiSlice.injectEndpoints({
     endpoints: (build) => ({
         getProjectConfigs: build.query({
-            query: ({ projectId, ...params }) => ({
-                url: `/projects/${projectId}/configs`,
-                params
+            query: ({projectId, page = 0, size = 20}) => ({
+                url: `/artifact-service/api/projects/${projectId}/executionConfigs`,
+                params: {page, size}
             }),
             providesTags: (result, _err, arg) => {
-                const items = Array.isArray(result)
-                    ? result : Array.isArray(result?.items)
-                        ? result.items : []
+                const items = Array.isArray(result?.records) ? result.records : []
 
                 return [
                     { type: "ProjectConfigs", id: `LIST:${arg.projectId}` },
                     ...items
-                        .filter((item) => item?.id)
-                        .map((item) => ({ type: "ProjectConfig", id: item.id }))
+                        .filter((item) => item?.configId)
+                        .map((item) => ({ type: "ProjectConfig", id: item.configId }))
                 ]
             },
         }),
 
         getProjectConfig: build.query({
             query: ({ projectId, configId }) => ({
-                url: `/projects/${projectId}/configs/${configId}`,
+                url: `/artifact-service/api/projects/${projectId}/executionConfigs/${configId}`,
             }),
             providesTags: (_result, _err, arg) => [
                 { type: "ProjectConfig", id: arg.configId }
@@ -32,7 +30,7 @@ export const configsApiSlice = apiSlice.injectEndpoints({
 
         createProjectConfig: build.mutation({
             query: ({ projectId, ...body }) => ({
-                url: `/projects/${projectId}/configs`,
+                url: `/artifact-service/api/projects/${projectId}/executionConfigs`,
                 method: "POST",
                 body
             }),
@@ -43,7 +41,7 @@ export const configsApiSlice = apiSlice.injectEndpoints({
 
         updateProjectConfig: build.mutation({
             query: ({ projectId, configId, ...body }) => ({
-                url: `/projects/${projectId}/configs/${configId}`,
+                url: `/artifact-service/api/projects/${projectId}/executionConfigs/${configId}`,
                 method: "PATCH",
                 body
             }),
@@ -55,7 +53,7 @@ export const configsApiSlice = apiSlice.injectEndpoints({
 
         deleteProjectConfig: build.mutation({
             query: ({ projectId, configId }) => ({
-                url: `/projects/${projectId}/configs/${configId}`,
+                url: `/artifact-service/api/projects/${projectId}/executionConfigs/${configId}`,
                 method: "DELETE"
             }),
             invalidatesTags: (_result, _err, arg) => [
@@ -63,21 +61,15 @@ export const configsApiSlice = apiSlice.injectEndpoints({
                 { type: "ProjectConfig", id: arg.configId }
             ],
         }),
-
-        exportProjectConfig: build.mutation({
-            query: ({ projectId, configId }) => ({
-                url: `/projects/${projectId}/configs/${configId}/export`,
-                responseHandler: async (response) => response.blob()
-            }),
-        }),
     }),
 })
 
 export const {
     useGetProjectConfigsQuery,
+    useLazyGetProjectConfigsQuery,
     useGetProjectConfigQuery,
+    useLazyGetProjectConfigQuery,
     useCreateProjectConfigMutation,
     useUpdateProjectConfigMutation,
     useDeleteProjectConfigMutation,
-    useExportProjectConfigMutation,
 } = configsApiSlice

@@ -1,27 +1,26 @@
 import {Link, useNavigate, useParams} from "react-router-dom"
-import {useSelector} from "react-redux"
 import {useForm} from "react-hook-form"
 import {zodResolver} from "@hookform/resolvers/zod"
-
 import {ErrorBanner} from "../components/ui/ErrorBanner.jsx"
 import {InlineLoader} from "../components/ui/InlineLoader.jsx"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
-import {selectCurrentUser} from "../store/auth/authSelectors.js"
-
-import {useDeleteProjectMutation, useGetProjectMembersQuery, useGetProjectQuery,
+import {useDeleteProjectMutation, useGetProjectQuery,
     useInviteProjectMemberMutation, useRemoveProjectMemberMutation, useUpdateProjectMemberMutation
 } from "../store/projects/projectsApiSlice.js"
-
 import "./ProjectsPages.css"
 import {formatDateTime} from "../utils/datetime.js"
 import {inviteSchema} from "../validation/projectSchemas.js"
-import {getProjectRole, MANAGE_ROLE, PROJECT_ROLE} from "../utils/projectRole.js";
-import {getProjectPermissions} from "../utils/projectPermissions.js"
+import {MANAGE_ROLE, PROJECT_ROLE} from "../utils/projectRole.js"
+import {QueryBoundary} from "../components/guards/QueryBoundary.jsx"
+import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx"
+import {PageHeader} from "../components/layout/PageHeader.jsx"
+import {RefreshButton} from "../components/ui/RefreshButton.jsx"
+import {PageCard} from "../components/layout/PageCard.jsx"
+import {getProjectFieldClass} from "../utils/getProjectFieldClass.js"
 
 export const ProjectPage = () => {
     const { projectId } = useParams()
     const navigate = useNavigate()
-    const currentUser = useSelector(selectCurrentUser)
 
     const {data: project, isFetching, isError, error, refetch} =
         useGetProjectQuery(projectId, { refetchOnMountOrArgChange: true })
@@ -29,288 +28,269 @@ export const ProjectPage = () => {
     const [deleteProject, { isLoading: isDeleting, isError: delErrorFlag, error: delError }] =
         useDeleteProjectMutation()
 
-    const {data: membersData, isFetching: isMembersFetching, isError: membersIsError,
-        error: membersError, refetch: refetchMembers} =
-        useGetProjectMembersQuery(projectId, { refetchOnMountOrArgChange: true })
-
-    const members = Array.isArray(membersData)
-        ? membersData : Array.isArray(membersData?.items)
-            ? membersData.items : []
-
     const [inviteMember, { isLoading: inviteLoading, isError: inviteIsError, error: inviteError }] =
         useInviteProjectMemberMutation()
+
     const [updateMember, { isLoading: updateMemberLoading }] = useUpdateProjectMemberMutation()
     const [removeMember, { isLoading: removeMemberLoading }] = useRemoveProjectMemberMutation()
-
-    const projectRole = getProjectRole(project, currentUser)
-    const permissions = getProjectPermissions(projectRole)
 
     const inviteForm = useForm({
         resolver: zodResolver(inviteSchema),
         mode: "onChange",
         defaultValues: {
-            email: "",
-            role: "user",
+            username: "",
+            memberRole: "USER",
         },
     })
 
-    const onDelete = async () => {
-        if (!permissions.canManageProject) {
+    const onDelete = async (permissions) => {
+        if (!permissions?.canManageProject) {
             return
         }
         if (!window.confirm("Удалить проект? Действие необратимо")) {
             return
         }
-        const res = await deleteProject(projectId)
-        if ("data" in res) {
-            navigate("/projects")
-        }
-    }
-
-    const onInvite = async (values) => {
-        if (!permissions.canManageMembers) {
-            return
-        }
-        const res = await inviteMember({
-            projectId,
-            email: values.email.trim(),
-            role: values.role,
-        })
-
-        if ("data" in res) {
-            inviteForm.reset({ email: "", role: values.role })
-            refetchMembers()
-        }
-    }
-
-    const onChangeRole = async (memberId, role) => {
-        if (!permissions.canManageMembers) {
-            return
-        }
-        await updateMember({ projectId, memberId, role })
-        refetchMembers()
-    }
-
-    const onRemove = async (memberId, role) => {
-        if (!permissions.canManageMembers || role === "owner") {
-            return
-        }
-        if (!window.confirm("Удалить участника из проекта?")) {
-            return
-        }
-        await removeMember({ projectId, memberId })
-        refetchMembers()
+        await deleteProject(projectId).unwrap()
+        navigate("/projects")
     }
 
     return (
-        <section className="projectsPage">
-            <div className="projectsHeader">
-                <div>
-                    <h2>Проект</h2>
-                    <p>
-                        <Link to="/projects" className="line">← Назад к проектам</Link>
-                    </p>
-                </div>
+        <QueryBoundary
+            isLoading={isFetching}
+            hasData={!!project}
+            isError={isError}
+            error={error}
+            onRetry={refetch}
+            loadingLabel="Загружаем проект..."
+            errorTitle="Не удалось загрузить проект"
+            errorMessage={getApiErrorMessage(error)}
+        >
+            <ProjectPermissionsBoundary projectId={projectId}>
+                {({members, projectRole, permissions, isLoadingMembers, reloadMembers}) => {
+                    const onInvite = async (values) => {
+                        if (!permissions?.canManageMembers) {
+                            return
+                        }
+                        await inviteMember({
+                            projectId,
+                            username: values.username.trim(),
+                            memberRole: values.memberRole,
+                        }).unwrap()
+                        inviteForm.reset({
+                                username: "",
+                                memberRole: values.memberRole,
+                        })
+                        await reloadMembers()
+                    }
+                    const onChangeRole = async (userId, memberRole) => {
+                        if (!permissions?.canManageMembers) {
+                            return
+                        }
+                        await updateMember({ projectId, userId, memberRole }).unwrap()
+                        await reloadMembers()
+                    }
+                    const onRemove = async (userId, memberRole) => {
+                        if (!permissions?.canManageMembers || memberRole === "OWNER") {
+                            return
+                        }
+                        if (!window.confirm("Удалить участника из проекта?")) {
+                            return
+                        }
+                        await removeMember({ projectId, userId }).unwrap()
+                        await reloadMembers()
+                    }
+                    return (
+                        <section className="projectsPage">
+                            <PageHeader
+                                title="Проект"
+                                backTo="/projects"
+                                backLabel="Назад к проектам"
+                                actions={
+                                    <>
+                                        <RefreshButton
+                                            onClick={refetch}
+                                            isLoading={isFetching}
+                                        />
+                                        {permissions?.canManageProject ? (
+                                            <Link className="projectsBtn" to={`/projects/${projectId}/edit`}>
+                                                Редактировать
+                                            </Link>
+                                        ) : null}
+                                        {permissions?.canManageProject ? (
+                                            <button
+                                                className="projectsBtn"
+                                                onClick={() => onDelete(permissions)}
+                                                disabled={isDeleting}
+                                                type="button"
+                                            >
+                                                {isDeleting ? <InlineLoader label="Удаляем..." /> : "Удалить"}
+                                            </button>
+                                        ) : null}
+                                    </>
+                                }
+                            />
+                            {delErrorFlag ? (
+                                <ErrorBanner
+                                    title="Не удалось удалить проект"
+                                    message={getApiErrorMessage(delError)}
+                                />
+                            ) : null}
+                            <PageCard>
+                                <h3>{project?.projectName ?? "—"}</h3>
 
-                <div className="projectsActions">
-                    <button
-                        className="projectsBtn projectsBtnSecondary"
-                        onClick={() => refetch()}
-                        disabled={isFetching}
-                        type="button">
-                        {isFetching ? <InlineLoader label="Обновляем..." /> : "Обновить"}
-                    </button>
+                                <div className="projectsPills">
+                                    <span className="pill">Моя роль: {PROJECT_ROLE[projectRole]}</span>
+                                    <span className="pill">Project ID: {project?.projectId ?? "—"}</span>
+                                </div>
 
-                    {permissions.canManageProject ? (
-                        <Link className="projectsBtn" to={`/projects/${projectId}/edit`}>
-                            Редактировать
-                        </Link>
-                    ) : null}
+                                <p className="projectsHint">
+                                    {project?.projectDescription
+                                        ? project.projectDescription
+                                        : "Описание не задано"}
+                                </p>
+                            </PageCard>
 
-                    {permissions.canManageProject ? (
-                        <button className="projectsBtn" onClick={onDelete} disabled={isDeleting} type="button">
-                            {isDeleting ? <InlineLoader label="Удаляем..." /> : "Удалить"}
-                        </button>
-                    ) : null}
-                </div>
-            </div>
+                            <PageCard
+                                title="Участники"
+                                actions={isLoadingMembers ? <InlineLoader label="Обновляем..." /> : null}
+                            >
+                                {members.length ? (
+                                    <div className="projectsTableWrap">
+                                        <table className="projectsTable">
+                                            <thead>
+                                            <tr>
+                                                <th>User ID</th>
+                                                <th>Роль</th>
+                                                <th>Добавлен</th>
+                                                <th></th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            {members.map((member) => {
+                                                const isOwnerMember = member.memberRole === "OWNER"
+                                                return (
+                                                    <tr key={`${member.projectId}:${member.userId}`}>
+                                                        <td>{member.userId}</td>
+                                                        <td>
+                                                            {permissions?.canManageMembers && !isOwnerMember ? (
+                                                                <select
+                                                                    className="projectsSelect"
+                                                                    value={member.memberRole}
+                                                                    disabled={updateMemberLoading}
+                                                                    onChange={(e) =>
+                                                                        onChangeRole(member.userId, e.target.value)
+                                                                    }
+                                                                >
+                                                                    {MANAGE_ROLE.map((r) => (
+                                                                        <option key={r} value={r}>
+                                                                            {PROJECT_ROLE[r.toLowerCase()]}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            ) : (
+                                                                <span className="pill">
+                                                                    {PROJECT_ROLE[member.memberRole?.toLowerCase()] ??
+                                                                        member.memberRole}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td>{formatDateTime(member.memberSince)}</td>
+                                                        <td>
+                                                            {!isOwnerMember && permissions?.canManageMembers ? (
+                                                                <button
+                                                                    className="projectsBtn projectsBtnDelete"
+                                                                    disabled={removeMemberLoading}
+                                                                    onClick={() => onRemove(member.userId,
+                                                                        member.memberRole)}
+                                                                    type="button"
+                                                                >
+                                                                    Удалить
+                                                                </button>
+                                                            ) : null}
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <p className="projectsHint">Участников нет</p>
+                                )}
 
-            {isError ? (
-                <ErrorBanner
-                    title="Не удалось загрузить проект"
-                    message={getApiErrorMessage(error)}
-                    onRetry={() => refetch()}
-                />
-            ) : null}
+                                {inviteIsError ? (
+                                    <ErrorBanner
+                                        title="Не удалось добавить"
+                                        message={getApiErrorMessage(inviteError)}
+                                    />
+                                ) : null}
 
-            {delErrorFlag ? (
-                <ErrorBanner
-                    title="Не удалось удалить проект"
-                    message={getApiErrorMessage(delError)}
-                />
-            ) : null}
+                                {permissions?.canManageMembers ? (
+                                    <form className="projectsForm" onSubmit={inviteForm.handleSubmit(onInvite)}>
+                                        <h4>Добавить участника</h4>
+                                        <div className="projectsTwoCols">
+                                            <div className="projectsFormRow">
+                                                <label>Username</label>
+                                                <input
+                                                    className={getProjectFieldClass(inviteForm,
+                                                        "username", "projectsInput")}
+                                                    placeholder="username"
+                                                    disabled={inviteLoading}
+                                                    {...inviteForm.register("username")}
+                                                />
+                                                <p className={inviteForm.formState.errors.username ?
+                                                    "instructions instructionsError" : ""}>
+                                                    {inviteForm.formState.errors.username?.message}
+                                                </p>
+                                            </div>
 
-            <div className="projectsCard">
-                <h3>{project?.name ?? "—"}</h3>
-
-                <div className="projectsPills">
-                    <span className={"pill " + (project?.is_active ? "" : "danger")}>
-                      {project?.is_active ? "Активен" : "Неактивен"}
-                    </span>
-                    <span className="pill">Моя роль: {PROJECT_ROLE[projectRole]}</span>
-                    <span className="pill">Создан: {formatDateTime(project?.created_at)}</span>
-                </div>
-
-                <p className="projectsHint">
-                    {project?.description ? project.description : "Описание не задано"}
-                </p>
-            </div>
-
-            <div className="projectsCard">
-                <div className="projectsHeader">
-                    <h3>Участники</h3>
-                    <div className="projectsActions">
-                        <button
-                            className="projectsBtn projectsBtnSecondary"
-                            onClick={() => refetchMembers()}
-                            disabled={isMembersFetching}
-                            type="button">
-                            {isMembersFetching ? <InlineLoader label="Обновляем..." /> : "Обновить"}
-                        </button>
-                    </div>
-                </div>
-
-                {membersIsError ? (
-                    <ErrorBanner
-                        title="Не удалось загрузить участников"
-                        message={getApiErrorMessage(membersError)}
-                        onRetry={() => refetchMembers()}
-                    />
-                ) : null}
-
-                {members.length ? (
-                    <div className="projectsTableWrap">
-                        <table className="projectsTable">
-                            <thead>
-                            <tr>
-                                <th>Email</th>
-                                <th>Роль</th>
-                                <th>Добавлен</th>
-                                <th></th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {members.map((m) => {
-                                const role = m.role ?? "user"
-                                const isOwnerMember = role === "owner"
-                                return (
-                                    <tr key={m.id}>
-                                        <td>{m.email ?? "—"}</td>
-                                        <td>
-                                            {permissions.canManageMembers && !isOwnerMember ? (
+                                            <div className="projectsFormRow">
+                                                <label>Роль</label>
                                                 <select
-                                                    className="projectsSelect"
-                                                    value={role}
-                                                    disabled={updateMemberLoading}
-                                                    onChange={(e) => onChangeRole(m.id, e.target.value)}>
+                                                    className={getProjectFieldClass(inviteForm,
+                                                        "memberRole", "projectsSelect")}
+                                                    disabled={inviteLoading}
+                                                    {...inviteForm.register("memberRole")}
+                                                >
                                                     {MANAGE_ROLE.map((r) => (
-                                                        <option className="pill" key={r} value={r}>
-                                                            {PROJECT_ROLE[r]}
+                                                        <option key={r} value={r}>
+                                                            {PROJECT_ROLE[r.toLowerCase()]}
                                                         </option>
                                                     ))}
                                                 </select>
-                                            ) : (
-                                                <span className="pill">{PROJECT_ROLE[role] ?? role}</span>
-                                            )}
-                                        </td>
-                                        <td>{formatDateTime(m.created_at)}</td>
-                                        <td>
-                                            {!isOwnerMember && permissions.canManageMembers ? (
-                                                <button
-                                                    className="projectsBtn projectsBtnDelete"
-                                                    disabled={removeMemberLoading}
-                                                    title="Удалить"
-                                                    onClick={() => onRemove(m.id, role)}
-                                                    type="button">
-                                                    Удалить
-                                                </button>
-                                            ) : null}
-                                        </td>
-                                    </tr>
-                                )
-                            })}
-                            </tbody>
-                        </table>
-                    </div>
-                ) : (
-                    <p className="projectsHint">Участников нет</p>
-                )}
+                                                <p className={inviteForm.formState.errors.memberRole ?
+                                                    "instructions instructionsError" : ""}>
+                                                    {inviteForm.formState.errors.memberRole?.message}
+                                                </p>
+                                            </div>
+                                        </div>
 
-                {inviteIsError ? (
-                    <div>
-                        <ErrorBanner title="Не удалось пригласить" message={getApiErrorMessage(inviteError)} />
-                    </div>
-                ) : null}
-
-                {permissions.canManageMembers ? (
-                    <form className="projectsForm" onSubmit={inviteForm.handleSubmit(onInvite)}>
-                        <h4>Пригласить участника</h4>
-
-                        <div className="projectsTwoCols">
-                            <div className="projectsFormRow">
-                                <label>Email</label>
-                                <input
-                                    className={"projectsInput" + (inviteForm.formState.errors.email ? " inputInvalid" : "")}
-                                    placeholder="user@example.com"
-                                    disabled={inviteLoading}
-                                    {...inviteForm.register("email")}
-                                />
-                                <p className={inviteForm.formState.errors.email ? "instructions instructionsError" : ""}>
-                                    {inviteForm.formState.errors.email?.message}
-                                </p>
-                            </div>
-
-                            <div className="projectsFormRow">
-                                <label>Роль</label>
-                                <select
-                                    className={"projectsSelect" + (inviteForm.formState.errors.role ? " inputInvalid" : "")}
-                                    disabled={inviteLoading}
-                                    {...inviteForm.register("role")}>
-                                    {MANAGE_ROLE.map((r) => (
-                                        <option key={r} value={r}>
-                                            {PROJECT_ROLE[r]}
-                                        </option>
-                                    ))}
-                                </select>
-                                <p className={inviteForm.formState.errors.role ? "instructions instructionsError" : ""}>
-                                    {inviteForm.formState.errors.role?.message}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="projectsActions">
-                            <button
-                                className="projectsBtn"
-                                type="submit"
-                                disabled={!inviteForm.formState.isValid || inviteLoading}>
-                                {inviteLoading ? <InlineLoader label="Приглашаем..." /> : "Пригласить"}
-                            </button>
-                        </div>
-                    </form>
-                ): null}
-            </div>
-
-            <div className="projectsCard">
-                <h3>Разделы проекта</h3>
-                <div className="projectsActions">
-                    <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/configs`}>
-                        Конфигурации
-                    </Link>
-                    <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/runs`}>
-                        Запуски
-                    </Link>
-                </div>
-            </div>
-        </section>
+                                        <div className="projectsActions">
+                                            <button
+                                                className="projectsBtn"
+                                                type="submit"
+                                                disabled={!inviteForm.formState.isValid || inviteLoading}
+                                            >
+                                                {inviteLoading ? <InlineLoader label="Добавляем..." /> : "Добавить"}
+                                            </button>
+                                        </div>
+                                    </form>
+                                ) : null}
+                            </PageCard>
+                            <PageCard title="Разделы проекта">
+                                <div className="projectsActions">
+                                    <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/configs`}>
+                                        Конфигурации
+                                    </Link>
+                                    <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/tasks`}>
+                                        Запуски
+                                    </Link>
+                                </div>
+                            </PageCard>
+                        </section>
+                    )
+                }}
+            </ProjectPermissionsBoundary>
+        </QueryBoundary>
     )
 }

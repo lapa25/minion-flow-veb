@@ -4,6 +4,7 @@ import {LoginPage} from "./pages/LoginPage.jsx";
 import { NotFoundPage } from "./pages/NotFoundPage.jsx";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage.jsx";
 import { ConfirmEmailPage } from "./pages/ConfirmEmailPage.jsx";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage.jsx"
 
 import { RequireAuth } from "./components/RequireAuth.jsx";
 import { PersistLogin } from "./components/PersistLogin.jsx";
@@ -18,7 +19,7 @@ import {CreateProjectPage} from "./pages/CreateProjectPage.jsx";
 import {ProjectPage} from "./pages/ProjectPage.jsx";
 import {EditProjectPage} from "./pages/EditProjectPage.jsx";
 import {ProjectConfigsPage} from "./pages/ProjectConfigsPage.jsx";
-import {ProjectRunsPage} from "./pages/ProjectRunsPage.jsx";
+import {ProjectTasksPage} from "./pages/ProjectTasksPage.jsx";
 import {CreateConfigPage} from "./pages/CreateConfigPage.jsx";
 import {ConfigDetailsPage} from "./pages/ConfigDetailsPage.jsx";
 import {EditConfigPage} from "./pages/EditConfigPage.jsx";
@@ -32,6 +33,7 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/confirm-email" element={<ConfirmEmailPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
         </Route>
         <Route element={<PersistLogin />}>
             <Route element={<RequireAuth />}>
@@ -45,7 +47,7 @@ function App() {
                     <Route path="/projects/:projectId/configs/new" element={<CreateConfigPage />} />
                     <Route path="/projects/:projectId/configs/:configId" element={<ConfigDetailsPage />} />
                     <Route path="/projects/:projectId/configs/:configId/edit" element={<EditConfigPage />} />
-                    <Route path="projects/:projectId/runs" element={<ProjectRunsPage />} />
+                    <Route path="projects/:projectId/tasks" element={<ProjectTasksPage />} />
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="settings" element={<SettingsPage />} />
                 </Route>

@@ -1,63 +1,54 @@
 import {apiSlice} from "../../api/apiSlice.js"
-import {setCredentials, logout} from "./authSlice"
+import {setCredentials} from "./authSlice"
 
 export const authApiSlice = apiSlice.injectEndpoints({
     endpoints: (build) => ({
             registration: build.mutation({
-                query: (body) => ({ url: "/auth/register", method: "POST", body })
+                query: (body) => ({ url: "/identity-service/api/accounts", method: "POST", body })
             }),
             login: build.mutation({
-                query: (body) => ({ url: "/auth/login", method: "POST", body }),
-                async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
-                    const { data } = await queryFulfilled
-                    dispatch(setCredentials({ user: data.user, accessToken: data.accessToken }))
-                },
+                query: (body) => ({url: "/identity-service/api/sessions", method: "POST", body}),
             }),
             me: build.query({
-                query: () => ({ url: '/auth/me' }),
+                query: () => ({ url: "/identity-service/api/accounts/me" }),
                 providesTags: ['Me'],
                 async onQueryStarted(_arg, { dispatch, queryFulfilled, getState }) {
                     try {
                         const { data } = await queryFulfilled
                         const accessToken = getState()?.auth?.accessToken ?? null
-                        dispatch(setCredentials({ user: data.user, accessToken }))
+                        dispatch(setCredentials({ user: data, accessToken }))
                     } catch {
                         // ошибки в ui
                     }
                 },
             }),
             logout: build.mutation({
-                query: () => ({ url: '/auth/logout', method: 'POST' }),
-                async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
-                    try {
-                        await queryFulfilled
-                    } finally {
-                        dispatch(logout())
-                        dispatch(apiSlice.util.resetApiState())
-                    }
-                },
+                query: () => ({url: "/identity-service/api/sessions/me", method: "DELETE", body: {}}),
+            }),
+            activateAccount: build.mutation({
+                query: ({accountId, activationToken}) => ({
+                    url: "/identity-service/api/account-activations", method: "POST",
+                    params: {accountId, activationToken}
+                }),
             }),
             forgotPassword: build.mutation({
-                query: (body) => ({ url: "/auth/forgot-password", method: "POST", body }),
+                query: (body) => ({url: "/identity-service/api/password-resets", method: "POST", body}),
             }),
-            confirmEmail: build.mutation({
-                query: (body) => ({ url: "/auth/confirm-email", method: "POST", body }),
-                invalidatesTags: ['Me'],
+            finishPasswordReset: build.mutation({
+                query: (body) => ({url: "/identity-service/api/password-resets", method: "PUT", body}),
             }),
-            resendConfirmEmail: build.mutation({
-                query: (body) => ({ url: "/auth/resend-confirm-email", method: "POST", body }),
-            }),
-            updateNotifications: build.mutation({
-                query: (body) => ({ url: "/auth/notifications", method: "PATCH", body }),
-                invalidatesTags: ['Me'],
+            updateUserInfo: build.mutation({
+                query: (body) => ({
+                    url: "/identity-service/api/accounts/me", method: "PATCH", body}),
+                invalidatesTags: ["Me"],
             }),
             changePassword: build.mutation({
-                query: (body) => ({ url: "/auth/change-password", method: "POST", body }),
+                query: (body) => ({ url: "/identity-service/api/accounts/me/passwords",
+                    method: "PATCH", body })
             }),
     })
 })
 
-export const { useLoginMutation, useMeQuery, useLogoutMutation, useRegistrationMutation,
-    useForgotPasswordMutation, useConfirmEmailMutation, useResendConfirmEmailMutation,
-    useUpdateNotificationsMutation, useChangePasswordMutation}
-    = authApiSlice
+export const {useRegistrationMutation, useLoginMutation, useMeQuery, useLazyMeQuery, useActivateAccountMutation,
+    useLogoutMutation, useForgotPasswordMutation, useFinishPasswordResetMutation, useUpdateUserInfoMutation,
+    useChangePasswordMutation} = authApiSlice
