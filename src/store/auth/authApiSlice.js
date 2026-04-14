@@ -46,9 +46,16 @@ export const authApiSlice = apiSlice.injectEndpoints({
                 query: (body) => ({ url: "/identity-service/api/accounts/me/passwords",
                     method: "PATCH", body })
             }),
+            refreshSession: build.mutation({
+                query: () => ({
+                    url: "/identity-service/api/sessions/refresh",
+                    method: "POST",
+                    body: {},
+                }),
+            }),
     })
 })
 
 export const {useRegistrationMutation, useLoginMutation, useMeQuery, useLazyMeQuery, useActivateAccountMutation,
     useLogoutMutation, useForgotPasswordMutation, useFinishPasswordResetMutation, useUpdateUserInfoMutation,
-    useChangePasswordMutation} = authApiSlice
+    useChangePasswordMutation, useRefreshSessionMutation} = authApiSlice

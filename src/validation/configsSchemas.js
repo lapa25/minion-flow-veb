@@ -118,14 +118,14 @@ const validateConfigForm = (data, form) => {
         if (scheduling.minParallelism === undefined) {
             form.addIssue({
                 code: "custom",
-                path: ["spec", "execution", "scheduling", "minParallelism"],
+                path: ["config", "scheduling", "minParallelism"],
                 message: "Для mode=asp укажите minParallelism"
             })
         }
         if (scheduling.maxParallelism === undefined) {
             form.addIssue({
                 code: "custom",
-                path: ["spec", "execution", "scheduling", "maxParallelism"],
+                path: ["config", "scheduling", "maxParallelism"],
                 message: "Для mode=asp укажите maxParallelism"
             })
         }
@@ -134,7 +134,7 @@ const validateConfigForm = (data, form) => {
             scheduling.minParallelism > scheduling.maxParallelism) {
             form.addIssue({
                 code: "custom",
-                path: ["spec", "execution", "scheduling", "maxParallelism"],
+                path: ["config", "scheduling", "maxParallelism"],
                 message: "maxParallelism должен быть больше либо равен minParallelism",
             })
         }
@@ -142,7 +142,7 @@ const validateConfigForm = (data, form) => {
     if (scheduling.mode === "fixed" && scheduling.parallelism === undefined) {
         form.addIssue({
             code: "custom",
-            path: ["spec", "execution", "scheduling", "parallelism"],
+            path: ["config", "scheduling", "parallelism"],
             message: "Для mode=fixed укажите parallelism"
         })
     }

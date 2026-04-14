@@ -5,7 +5,7 @@ import {useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
 import {formatDateTime} from "../utils/datetime.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {PROJECT_ROLE} from "../utils/projectRole.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {useLazyGetProjectConfigQuery, useLazyGetProjectConfigsQuery} from "../store/configs/configsApiSlice.js";
 import {loadAllPages} from "../utils/loadAllPages.js";
 import {useAsyncList} from "../hooks/useAsyncList.js";

@@ -2,7 +2,7 @@ import {useNavigate} from "react-router-dom"
 import {useCreateProjectMutation} from "../store/projects/projectsApiSlice.js"
 import {ProjectForm} from "../components/projects/ProjectForm.jsx";
 import {PageHeader} from "../components/layout/PageHeader.jsx";
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 
 export const CreateProjectPage = () => {
     const navigate = useNavigate()

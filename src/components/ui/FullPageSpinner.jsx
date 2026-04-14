@@ -1,4 +1,4 @@
-import './LoadersErrors.css'
+import '../../styles/LoadersErrors.css'
 
 export const FullPageSpinner = ({ label = "Загрузка..." }) => {
     return (

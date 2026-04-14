@@ -1,12 +1,12 @@
-import {useCallback} from "react"
-import  {useParams, Link} from "react-router-dom"
+import {useCallback, useState} from "react"
+import {useParams, Link} from "react-router-dom"
 import {DebouncedSearchInput} from "../components/ui/DebouncedSearchInput.jsx"
 import {useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
 import {useLazyGetProjectTasksQuery} from "../store/tasks/tasksApiSlice.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {formatDateTime} from "../utils/datetime.js"
 import {PROJECT_ROLE} from "../utils/projectRole.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {useAsyncList} from "../hooks/useAsyncList.js";
 import {loadAllPages} from "../utils/loadAllPages.js";
 import {useClientList} from "../hooks/useClientList.js";
@@ -19,6 +19,7 @@ import {ListTableCard} from "../components/lists/ListTableCard.jsx";
 import {ListPagination} from "../components/lists/ListPagination.jsx";
 import {QueryBoundary} from "../components/guards/QueryBoundary.jsx";
 import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx";
+import {LaunchTaskDialog} from "../components/tasks/LaunchTaskDialog.jsx";
 
 const TASKS_PAGE_DEFAULTS = {
     q: "",
@@ -65,6 +66,7 @@ const sortTasks = (items, {sort}) => {
 }
 
 const ProjectTasksContent = ({projectId, project, projectRole, permissions, isResolved}) => {
+    const [isLaunchOpen, setIsLaunchOpen] = useState(false)
     const [triggerGetProjectTasks] = useLazyGetProjectTasksQuery()
 
     const loadTasksData = useCallback(async () => {
@@ -77,7 +79,7 @@ const ProjectTasksContent = ({projectId, project, projectRole, permissions, isRe
     }, [projectId, triggerGetProjectTasks])
 
     const {items: allTasks, isLoading: isLoadingAll, error: loadError, reload: loadTasks} = useAsyncList({
-        enabled: Boolean(projectId) && isResolved && permissions?.canManageTasks,
+        enabled: Boolean(projectId) && isResolved && permissions?.canViewTasks,
         loader: loadTasksData,
     })
 
@@ -97,10 +99,21 @@ const ProjectTasksContent = ({projectId, project, projectRole, permissions, isRe
                 backTo={`/projects/${projectId}`}
                 backLabel="Назад к проекту"
                 actions={
-                    <RefreshButton
-                        onClick={loadTasks}
-                        isLoading={isLoadingAll}
-                    />
+                    <>
+                        {permissions?.canManageTasks ? (
+                            <button
+                                className="projectsBtn"
+                                type="button"
+                                onClick={() => setIsLaunchOpen((prev) => !prev)}
+                            >
+                                {isLaunchOpen ? "Скрыть форму" : "Новый запуск"}
+                            </button>
+                        ) : null}
+                        <RefreshButton
+                            onClick={loadTasks}
+                            isLoading={isLoadingAll}
+                        />
+                    </>
                 }
             />
             <ListSummaryCard>
@@ -108,9 +121,15 @@ const ProjectTasksContent = ({projectId, project, projectRole, permissions, isRe
                 <span className="pill">Моя роль: {PROJECT_ROLE[projectRole]}</span>
                 <span className="pill">Всего запусков: {total}</span>
             </ListSummaryCard>
+            {permissions?.canManageTasks ? (
+                <LaunchTaskDialog
+                    isOpen={isLaunchOpen}
+                    projectId={projectId}
+                    onClose={() => setIsLaunchOpen(false)}
+                />
+            ) : null}
             <ListFiltersCard>
                 <DebouncedSearchInput
-                    key={q}
                     initialValue={q}
                     placeholder="Поиск по taskId / jar / input / config"
                     className="projectsInput"
@@ -124,7 +143,7 @@ const ProjectTasksContent = ({projectId, project, projectRole, permissions, isRe
                     <option value="all">Все статусы</option>
                     <option value="CREATED">CREATED</option>
                     <option value="STARTING">STARTING</option>
-                    <option value="taskNING">taskNING</option>
+                    <option value="RUNNING">RUNNING</option>
                     <option value="FINISHED">FINISHED</option>
                     <option value="TIME_OUT">TIME_OUT</option>
                     <option value="CANCELED">CANCELED</option>
@@ -222,7 +241,7 @@ export const ProjectTasksPage = () => {
         >
             <ProjectPermissionsBoundary
                 projectId={projectId}
-                permission="canManageTasks"
+                permission="canViewTasks"
                 deniedMessage="У вас нет доступа к просмотру запусков этого проекта"
             >
                 {({projectRole, permissions, isResolved}) => (

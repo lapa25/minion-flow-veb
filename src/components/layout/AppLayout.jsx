@@ -7,7 +7,7 @@ import { InlineLoader } from "../ui/InlineLoader.jsx";
 import { ErrorBanner } from "../ui/ErrorBanner.jsx";
 import { getApiErrorMessage } from "../../utils/getApiErrorMessage.js";
 
-import "./AppLayout.css"
+import "../../styles/AppLayout.css"
 
 const navLinkStyle = ({ isActive }) => ({
     textDecoration: "none",

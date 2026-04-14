@@ -5,7 +5,8 @@ export const apiSlice = createApi({
     reducerPath: "api",
     baseQuery: queryWithReauth,
     tagTypes: ["Me", "Project", "Projects", "ProjectMembers", "ProjectConfig", "ProjectConfigs",
-        "ProjectTask", "ProjectTasks"],
+        "ProjectTask", "ProjectTasks",  "ProjectArtifact", "ProjectArtifacts", "ProjectInput",
+        "ProjectInputs"],
     endpoints: () => ({
     })
 })

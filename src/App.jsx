@@ -23,6 +23,10 @@ import {ProjectTasksPage} from "./pages/ProjectTasksPage.jsx";
 import {CreateConfigPage} from "./pages/CreateConfigPage.jsx";
 import {ConfigDetailsPage} from "./pages/ConfigDetailsPage.jsx";
 import {EditConfigPage} from "./pages/EditConfigPage.jsx";
+import {ProjectArtifactsPage} from "./pages/ProjectArtifactsPage.jsx"
+import {ProjectInputsPage} from "./pages/ProjectInputsPage.jsx"
+import {TaskRunDetailsPage} from "./pages/TaskRunDetailsPage.jsx"
+import {MicrotaskDetailsPage} from "./pages/MicrotaskDetailsPage.jsx"
 
 function App() {
 
@@ -48,6 +52,13 @@ function App() {
                     <Route path="/projects/:projectId/configs/:configId" element={<ConfigDetailsPage />} />
                     <Route path="/projects/:projectId/configs/:configId/edit" element={<EditConfigPage />} />
                     <Route path="projects/:projectId/tasks" element={<ProjectTasksPage />} />
+                    <Route path="projects/:projectId/tasks/:taskId" element={<TaskRunDetailsPage />} />
+                    <Route
+                        path="projects/:projectId/tasks/:taskId/microtasks/:microtaskId"
+                        element={<MicrotaskDetailsPage />}
+                    />
+                    <Route path="projects/:projectId/artifacts" element={<ProjectArtifactsPage />} />
+                    <Route path="projects/:projectId/inputs" element={<ProjectInputsPage />} />
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="settings" element={<SettingsPage />} />
                 </Route>

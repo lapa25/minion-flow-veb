@@ -2,7 +2,7 @@ import {useCallback} from "react"
 import {Link} from "react-router-dom"
 import {useLazyGetProjectsQuery,
     useLazyGetProjectMembersQuery} from "../store/projects/projectsApiSlice.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {PROJECT_ROLE, getProjectRole} from "../utils/projectRole.js";
 import {DebouncedSearchInput} from "../components/ui/DebouncedSearchInput.jsx";
 import { useSelector } from "react-redux"
@@ -119,7 +119,6 @@ export const ProjectsPage = () => {
             </PageHeader>
             <ListFiltersCard>
                 <DebouncedSearchInput
-                    key={q}
                     initialValue={q}
                     placeholder="Поиск по названию"
                     className="projectsInput"

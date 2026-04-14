@@ -4,7 +4,7 @@ import { useMeQuery } from "../store/auth/authApiSlice.js"
 import { selectCurrentUser } from "../store/auth/authSelectors.js"
 import { getApiErrorMessage } from "../utils/getApiErrorMessage.js"
 import { ErrorBanner } from "../components/ui/ErrorBanner.jsx"
-import "./AccountPages.css"
+import "../styles/AccountPages.css"
 import {RefreshButton} from "../components/ui/RefreshButton.jsx";
 
 export const ProfilePage = () => {

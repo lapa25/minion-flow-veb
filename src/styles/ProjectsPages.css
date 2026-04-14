@@ -212,6 +212,7 @@ p{
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+    margin-bottom: 0.5rem;
 }
 
 .pill {
@@ -268,4 +269,63 @@ p{
 .projectsTableMainLink:focus-visible {
     outline: 1px solid currentColor;
     outline-offset: 2px;
+}
+
+.projectsFileInputNative {
+    display: none;
+}
+
+.projectsFileField {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    height: 2.5rem;
+    padding: 0.55rem 0.6rem;
+    border-radius: 0.75rem;
+    border: 0.0625rem solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.04);
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.projectsFileField:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.projectsFileField.isDisabled {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.projectsFileName {
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.projectsFileName.hasFile {
+    color: #fff;
+}
+
+.projectsFileField .projectsBtnSecondary {
+    height: 1.5rem;
+    border-radius: 0.5rem;
+}
+
+.logs {
+    margin-top: 1rem;
+    max-height: 28rem;
+    overflow: auto;
+    border-radius: 1rem;
+    border: 0.0625rem solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.22);
+    padding: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
 }

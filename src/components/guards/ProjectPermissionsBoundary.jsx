@@ -43,5 +43,5 @@ export const ProjectPermissionsBoundary = ({projectId, permission, redirectTo,
             </PageCard>
         )
     }
-    return children({members, projectRole, permissions, isLoadingMembers, reloadMembers})
+    return children({members, projectRole, permissions, isLoadingMembers, isResolved, reloadMembers})
 }

@@ -7,6 +7,10 @@ export const DebouncedSearchInput = ({initialValue = "", onCommit, delay = 350,
     const isFirstRender = useRef(true)
 
     useEffect(() => {
+        setValue(initialValue)
+    }, [initialValue])
+
+    useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false
             return

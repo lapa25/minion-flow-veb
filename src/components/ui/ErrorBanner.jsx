@@ -1,4 +1,4 @@
-import './LoadersErrors.css'
+import '../../styles/LoadersErrors.css'
 
 export const ErrorBanner = ({ title = "Ошибка", message, onRetry }) => {
     return (

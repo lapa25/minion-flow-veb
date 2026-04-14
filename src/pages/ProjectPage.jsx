@@ -7,7 +7,7 @@ import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {useDeleteProjectMutation, useGetProjectQuery,
     useInviteProjectMemberMutation, useRemoveProjectMemberMutation, useUpdateProjectMemberMutation
 } from "../store/projects/projectsApiSlice.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {formatDateTime} from "../utils/datetime.js"
 import {inviteSchema} from "../validation/projectSchemas.js"
 import {MANAGE_ROLE, PROJECT_ROLE} from "../utils/projectRole.js"
@@ -149,7 +149,33 @@ export const ProjectPage = () => {
                                         : "Описание не задано"}
                                 </p>
                             </PageCard>
+                            <PageCard title="Разделы проекта">
+                                <div className="projectsActions">
+                                    {permissions?.canViewArtifacts ? (
+                                        <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/artifacts`}>
+                                            Артефакты
+                                        </Link>
+                                    ) : null}
 
+                                    {permissions?.canViewInputs ? (
+                                        <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/inputs`}>
+                                            Входные данные
+                                        </Link>
+                                    ) : null}
+
+                                    {permissions?.canViewConfigs ? (
+                                        <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/configs`}>
+                                            Конфигурации
+                                        </Link>
+                                    ) : null}
+
+                                    {permissions?.canViewTasks ? (
+                                        <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/tasks`}>
+                                            Запуски
+                                        </Link>
+                                    ) : null}
+                                </div>
+                            </PageCard>
                             <PageCard
                                 title="Участники"
                                 actions={isLoadingMembers ? <InlineLoader label="Обновляем..." /> : null}
@@ -159,7 +185,7 @@ export const ProjectPage = () => {
                                         <table className="projectsTable">
                                             <thead>
                                             <tr>
-                                                <th>User ID</th>
+                                                <th>Username</th>
                                                 <th>Роль</th>
                                                 <th>Добавлен</th>
                                                 <th></th>
@@ -170,7 +196,7 @@ export const ProjectPage = () => {
                                                 const isOwnerMember = member.memberRole === "OWNER"
                                                 return (
                                                     <tr key={`${member.projectId}:${member.userId}`}>
-                                                        <td>{member.userId}</td>
+                                                        <td>{member.username ?? "—"}</td>
                                                         <td>
                                                             {permissions?.canManageMembers && !isOwnerMember ? (
                                                                 <select
@@ -276,16 +302,6 @@ export const ProjectPage = () => {
                                         </div>
                                     </form>
                                 ) : null}
-                            </PageCard>
-                            <PageCard title="Разделы проекта">
-                                <div className="projectsActions">
-                                    <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/configs`}>
-                                        Конфигурации
-                                    </Link>
-                                    <Link className="projectsBtn projectsBtnSecondary" to={`/projects/${projectId}/tasks`}>
-                                        Запуски
-                                    </Link>
-                                </div>
                             </PageCard>
                         </section>
                     )

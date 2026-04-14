@@ -1,5 +1,5 @@
 import {useEffect, useMemo} from "react"
-import {useForm} from "react-hook-form"
+import {useForm, useWatch} from "react-hook-form"
 import {zodResolver} from "@hookform/resolvers/zod"
 
 import {InlineLoader} from "../ui/InlineLoader.jsx"
@@ -22,8 +22,14 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
         }
     }, [form, initialValues])
 
-    const values = form.watch()
-    const schedulingMode = form.watch("spec.execution.scheduling.mode")
+    const values = useWatch({
+        control: form.control,
+    })
+
+    const schedulingMode = useWatch({
+        control: form.control,
+        name: "config.scheduling.mode",
+    })
 
     const getFieldClass = (baseClass, name) => {
         const { error, isTouched, isDirty } = form.getFieldState(name, form.formState)
@@ -101,7 +107,7 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                         <select
                             className="projectsSelect"
                             disabled={isView || isSubmitting}
-                            {...form.register("spec.execution.scheduling.mode")}>
+                            {...form.register("config.scheduling.mode")}>
                             <option value="asp">asp</option>
                             <option value="fixed">fixed</option>
                         </select>
@@ -111,14 +117,14 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                         <label className="projectsField">
                             <span>parallelism *</span>
                             <input
-                                className={inputClass("spec.execution.scheduling.parallelism")}
+                                className={inputClass("config.scheduling.parallelism")}
                                 disabled={isView || isSubmitting}
                                 type="number"
                                 min="1"
-                                {...form.register("spec.execution.scheduling.parallelism")}
+                                {...form.register("config.scheduling.parallelism")}
                             />
-                            <p className={errorMessage("spec.execution.scheduling.parallelism") ? "instructions instructionsError" : ""}>
-                                {errorMessage("spec.execution.scheduling.parallelism")}
+                            <p className={errorMessage("config.scheduling.parallelism") ? "instructions instructionsError" : ""}>
+                                {errorMessage("config.scheduling.parallelism")}
                             </p>
                         </label>
                     ) : (
@@ -126,28 +132,28 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                             <label className="projectsField">
                                 <span>minParallelism *</span>
                                 <input
-                                    className={inputClass("spec.execution.scheduling.minParallelism")}
+                                    className={inputClass("config.scheduling.minParallelism")}
                                     disabled={isView || isSubmitting}
                                     type="number"
                                     min="1"
-                                    {...form.register("spec.execution.scheduling.minParallelism")}
+                                    {...form.register("config.scheduling.minParallelism")}
                                 />
-                                <p className={errorMessage("spec.execution.scheduling.minParallelism") ? "instructions instructionsError" : ""}>
-                                    {errorMessage("spec.execution.scheduling.minParallelism")}
+                                <p className={errorMessage("config.scheduling.minParallelism") ? "instructions instructionsError" : ""}>
+                                    {errorMessage("config.scheduling.minParallelism")}
                                 </p>
                             </label>
 
                             <label className="projectsField">
                                 <span>maxParallelism *</span>
                                 <input
-                                    className={inputClass("spec.execution.scheduling.maxParallelism")}
+                                    className={inputClass("config.scheduling.maxParallelism")}
                                     disabled={isView || isSubmitting}
                                     type="number"
                                     min="1"
-                                    {...form.register("spec.execution.scheduling.maxParallelism")}
+                                    {...form.register("config.scheduling.maxParallelism")}
                                 />
-                                <p className={errorMessage("spec.execution.scheduling.maxParallelism") ? "instructions instructionsError" : ""}>
-                                    {errorMessage("spec.execution.scheduling.maxParallelism")}
+                                <p className={errorMessage("config.scheduling.maxParallelism") ? "instructions instructionsError" : ""}>
+                                    {errorMessage("config.scheduling.maxParallelism")}
                                 </p>
                             </label>
                         </div>

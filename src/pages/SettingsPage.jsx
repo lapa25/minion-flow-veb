@@ -13,7 +13,7 @@ import { getApiErrorMessage } from "../utils/getApiErrorMessage.js"
 import { RefreshButton } from "../components/ui/RefreshButton.jsx"
 import { ErrorBanner } from "../components/ui/ErrorBanner.jsx"
 import { InlineLoader } from "../components/ui/InlineLoader.jsx"
-import "./AccountPages.css"
+import "../styles/AccountPages.css"
 
 const SettingsSection = ({title, error, successMessage, children, style}) => {
     return (

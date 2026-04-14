@@ -2,7 +2,7 @@ import {useMemo} from "react"
 import {useNavigate, useParams} from "react-router-dom"
 import {useGetProjectQuery, useUpdateProjectMutation} from "../store/projects/projectsApiSlice.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {ProjectForm} from "../components/projects/ProjectForm.jsx";
 import {QueryBoundary} from "../components/guards/QueryBoundary.jsx";
 import {RefreshButton} from "../components/ui/RefreshButton.jsx";

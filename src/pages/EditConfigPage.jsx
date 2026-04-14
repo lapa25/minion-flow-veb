@@ -7,7 +7,7 @@ import {useGetProjectConfigQuery, useUpdateProjectConfigMutation}
     from "../store/configs/configsApiSlice.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {toConfigFormValues, toConfigPayload} from "../validation/configsSchemas.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {QueryBoundary} from "../components/guards/QueryBoundary.jsx";
 import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx";
 import {PageHeader} from "../components/layout/PageHeader.jsx";

@@ -1,4 +1,4 @@
-import {useMemo} from "react"
+import {useMemo, useState} from "react"
 import {Link, useNavigate, useParams} from "react-router-dom"
 import {ErrorBanner} from "../components/ui/ErrorBanner.jsx"
 import {InlineLoader} from "../components/ui/InlineLoader.jsx"
@@ -10,16 +10,19 @@ import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {formatDateTime} from "../utils/datetime.js"
 import {PROJECT_ROLE} from "../utils/projectRole.js"
 import {toConfigFormValues} from "../validation/configsSchemas.js"
-import "./ProjectsPages.css"
+import "../styles/ProjectsPages.css"
 import {PageCard} from "../components/layout/PageCard.jsx";
 import {QueryBoundary} from "../components/guards/QueryBoundary.jsx";
 import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx";
 import {PageHeader} from "../components/layout/PageHeader.jsx";
+import {LaunchTaskDialog} from "../components/tasks/LaunchTaskDialog.jsx";
 
 
 export const ConfigDetailsPage = () => {
     const {projectId, configId} = useParams()
     const navigate = useNavigate()
+
+    const [isLaunchOpen, setIsLaunchOpen] = useState(false)
 
     const {data: project, isFetching: isProjectFetching, isError: isProjectError,
         error: projectError, refetch: refetchProject} = useGetProjectQuery(projectId, {
@@ -93,8 +96,12 @@ export const ConfigDetailsPage = () => {
                                         ) : null}
 
                                         {permissions?.canManageTasks ? (
-                                            <button className="projectsBtn" type="button">
-                                                Запустить
+                                            <button
+                                                className="projectsBtn"
+                                                type="button"
+                                                onClick={() => setIsLaunchOpen((prev) => !prev)}
+                                            >
+                                                {isLaunchOpen ? "Скрыть форму" : "Запустить с этой конфигурацией"}
                                             </button>
                                         ) : null}
 
@@ -115,6 +122,16 @@ export const ConfigDetailsPage = () => {
                                 <ErrorBanner
                                     title="Не удалось удалить конфигурацию"
                                     message={getApiErrorMessage(deleteError, "Ошибка удаления конфигурации")}
+                                />
+                            ) : null}
+                            {permissions?.canManageTasks ? (
+                                <LaunchTaskDialog
+                                    isOpen={isLaunchOpen}
+                                    projectId={projectId}
+                                    configId={config?.configId}
+                                    configAlias={config?.alias}
+                                    lockConfig
+                                    onClose={() => setIsLaunchOpen(false)}
                                 />
                             ) : null}
                             <PageCard title="Основное">

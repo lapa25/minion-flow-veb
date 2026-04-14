@@ -8,8 +8,12 @@ const PROJECT_PERMISSIONS = {
         canViewArtifacts: true,
         canManageArtifacts: true,
         canDownloadArtifacts: true,
+        canViewInputs: true,
         canManageInputs: true,
-        canManageTasks: true
+        canViewTasks: true,
+        canManageTasks: true,
+        canViewTaskOutputs: true,
+        canViewTaskLogs: true,
     },
 
     maintainer: {
@@ -21,8 +25,12 @@ const PROJECT_PERMISSIONS = {
         canViewArtifacts: true,
         canManageArtifacts: true,
         canDownloadArtifacts: true,
+        canViewInputs: true,
         canManageInputs: true,
-        canManageTasks: true
+        canViewTasks: true,
+        canManageTasks: true,
+        canViewTaskOutputs: true,
+        canViewTaskLogs: true,
     },
 
     user: {
@@ -34,8 +42,12 @@ const PROJECT_PERMISSIONS = {
         canViewArtifacts: true,
         canManageArtifacts: false,
         canDownloadArtifacts: false,
+        canViewInputs: true,
         canManageInputs: true,
-        canManageTasks: true
+        canViewTasks: true,
+        canManageTasks: true,
+        canViewTaskOutputs: true,
+        canViewTaskLogs: true,
     }
 }
 
