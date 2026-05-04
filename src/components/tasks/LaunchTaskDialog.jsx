@@ -5,7 +5,7 @@ import {InlineLoader} from "../ui/InlineLoader.jsx"
 import {ErrorBanner} from "../ui/ErrorBanner.jsx"
 import {useLazyGetProjectArtifactsQuery} from "../../store/artifacts/artifactsApiSlice.js"
 import {useLazyGetProjectInputsQuery} from "../../store/inputs/inputsApiSlice.js"
-import {useLazyGetProjectConfigsQuery} from "../../store/configs/configsApiSlice.js"
+import {useGetProjectConfigQuery, useLazyGetProjectConfigsQuery} from "../../store/configs/configsApiSlice.js"
 import {useCreateProjectTaskMutation} from "../../store/tasks/tasksApiSlice.js"
 import {useAsyncList} from "../../hooks/useAsyncList.js"
 import {loadAllPages} from "../../utils/loadAllPages.js"
@@ -90,20 +90,37 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
         return configs.find((item) => item?.configId === effectiveConfigId) ?? null
     }, [configs, effectiveConfigId, lockConfig, presetConfigId, presetConfigAlias])
 
-    const isLoadingOptions = isLoadingArtifacts || isLoadingInputs || isLoadingConfigs
-    const hasOptionsError = Boolean(artifactsError || inputsError || configsError)
-
-    const canSubmit = Boolean(
-        effectiveJarId && effectiveInputId && effectiveConfigId && !isCreatingTask
+    const {data: selectedConfigDetails, isFetching: isConfigDetailsFetching,
+        isError: isConfigDetailsError, error: configDetailsError,
+        refetch: refetchConfigDetails} = useGetProjectConfigQuery(
+        {projectId, configId: effectiveConfigId},
+        {
+            skip: !isOpen || !projectId || !effectiveConfigId,
+        }
     )
 
-    const handleLaunch = async (e) => {
-        e.preventDefault()
+    const selectedConfigMeta = selectedConfigDetails ?? selectedConfig
+    const selectedRunType = selectedConfigDetails ? selectedConfigDetails.config.type : "stateless"
+
+    const isLoadingOptions = isLoadingArtifacts || isLoadingInputs || isLoadingConfigs || isConfigDetailsFetching
+
+    const hasOptionsError = Boolean(artifactsError || inputsError || configsError || isConfigDetailsError)
+
+    const canSubmit = Boolean(effectiveJarId && effectiveInputId && effectiveConfigId &&
+        selectedConfigDetails && !isCreatingTask && !isConfigDetailsFetching)
+
+    const handleLaunch = async (event) => {
+        event.preventDefault()
         if (!canSubmit) {
             return
         }
-        const result = await createProjectTask({projectId, jarId: effectiveJarId, inputId: effectiveInputId,
-            configId: effectiveConfigId}).unwrap()
+        const result = await createProjectTask({projectId,
+            jarId: effectiveJarId,
+            inputId: effectiveInputId,
+            configId: effectiveConfigId,
+            type: selectedRunType
+        }).unwrap()
+
         onClose?.()
         if (result?.taskId) {
             navigate(`/projects/${projectId}/tasks/${result.taskId}`)
@@ -127,18 +144,20 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
                 </button>
             }
         >
-            {selectedConfig ? (
+            {selectedConfigMeta ? (
                 <div className="projectsPills">
-                    <span className="pill">Config ID: {selectedConfig?.configId ?? "—"}</span>
-                    <span className="pill">Alias: {selectedConfig?.alias ?? "—"}</span>
+                    <span className="pill">Config ID: {selectedConfigMeta?.configId ?? "—"}</span>
+                    <span className="pill">Alias: {selectedConfigMeta?.alias ?? "—"}</span>
+                    <span className="pill">Тип запуска: {selectedRunType}</span>
                 </div>
             ) : null}
             {hasOptionsError ? (
                 <ErrorBanner
                     title="Не удалось загрузить данные для запуска"
-                    message={getApiErrorMessage(artifactsError ?? inputsError ?? configsError)}
+                    message={getApiErrorMessage(artifactsError ?? inputsError ?? configsError ??  configDetailsError)}
                     onRetry={async () => {
-                        await Promise.all([reloadArtifacts(), reloadInputs(), reloadConfigs()])
+                        await Promise.all([reloadArtifacts(), reloadInputs(), reloadConfigs(),
+                            effectiveConfigId ? refetchConfigDetails() : Promise.resolve()])
                     }}
                 />
             ) : null}
@@ -177,7 +196,7 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
                                 <span>Конфигурация *</span>
                                 <input
                                     className="projectsInput"
-                                    value={selectedConfig?.alias ?? presetConfigAlias ?? "—"}
+                                    value={selectedConfigMeta?.alias ?? presetConfigAlias ?? "—"}
                                     disabled
                                     readOnly
                                 />

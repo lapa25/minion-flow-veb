@@ -8,17 +8,102 @@ import {QueryBoundary} from "../components/guards/QueryBoundary.jsx"
 import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx"
 import {RefreshButton} from "../components/ui/RefreshButton.jsx"
 import {TaskExecutionOverview} from "../components/tasks/TaskExecutionOverview.jsx"
-import {useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
+import {useGetProjectMembersQuery, useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
 import {useCancelProjectTaskMutation, useGetProjectTaskOutputsQuery, useGetProjectTaskQuery,
-    useGetTaskProgressStreamQuery, useLazyGetTaskOutputContentQuery} from "../store/tasks/tasksApiSlice.js"
+    useGetTaskProgressStreamQuery, useGetTaskRuntimeStateQuery, useLazyGetTaskOutputContentQuery
+} from "../store/tasks/tasksApiSlice.js"
 import {downloadBlob} from "../utils/downloadBlob.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {formatDateTime} from "../utils/datetime.js"
 import {getStatusToneClassName, getTaskStatusLabel, TERMINAL_TASK_STATUSES} from "../utils/statuses.js"
+import {formatFileSize} from "../utils/fileSize.js"
 import "../styles/ProjectsStatus.css"
 import "../styles/ProjectsPages.css"
-import {formatFileSize} from "../utils/fileSize.js";
+import {InfoTile} from "../components/microtasks/InfoTile.jsx"
 
+const getTaskConfig = (task) =>
+    task?.launchSnapshot ??
+    task?.config ??
+    task?.executionConfig ??
+    null
+
+const toIndexMap = (items = []) =>
+    Object.fromEntries(
+        items.filter((item) => Number.isFinite(Number(item?.displayIndex)))
+             .map((item) => [Number(item.displayIndex), item]))
+
+const buildProgressSnapshot = ({taskId, payload, type, fallbackConfig}) => {
+    if (!payload) {
+        return null
+    }
+    return {
+        taskId,
+        type,
+        status: payload.status ?? null,
+        lastSeq: Number(payload.seq ?? 0),
+        summary: payload.summary ?? null,
+        config: payload.config ?? fallbackConfig ?? null,
+        microtasksByIndex: toIndexMap(payload.microtasks),
+        agentStatesByIndex: toIndexMap(payload.agentStates),
+        connectionStatus: "snapshot",
+        finishedAt: payload.finishedAt ?? null,
+        doneAt: payload.doneAt ?? null,
+    }
+}
+
+const mergeProgressStates = (snapshot, live) => {
+    if (!snapshot) {
+        return live ?? null
+    }
+    if (!live) {
+        return snapshot
+    }
+    return {
+        ...snapshot,
+        ...live,
+        status: live.status ?? snapshot.status,
+        summary: live.summary ?? snapshot.summary,
+        config: live.config ?? snapshot.config,
+        finishedAt: live.finishedAt ?? snapshot.finishedAt,
+        doneAt: live.doneAt ?? snapshot.doneAt,
+        microtasksByIndex: {
+            ...(snapshot.microtasksByIndex ?? {}),
+            ...(live.microtasksByIndex ?? {}),
+        },
+        agentStatesByIndex: {
+            ...(snapshot.agentStatesByIndex ?? {}),
+            ...(live.agentStatesByIndex ?? {}),
+        },
+    }
+}
+
+const getOrderedItems = (map) =>
+    Object.values(map ?? {}).sort(
+        (a, b) => Number(a?.displayIndex ?? 0) - Number(b?.displayIndex ?? 0)
+    )
+
+const RunOverviewCard = ({project, task, runType, effectiveStatus, effectiveFinishedAt, effectiveDoneAt, initiatorUsername}) => (
+    <PageCard title="Общая информация">
+        <div className="projectsPills">
+            <span className={`pill ${getStatusToneClassName(effectiveStatus)}`}>
+                {getTaskStatusLabel(effectiveStatus)}
+            </span>
+        </div>
+
+        <div className="projectsInfoGrid">
+            <InfoTile label="Проект" value={project?.projectName} />
+            <InfoTile label="JAR файл" value={task?.jarAlias} />
+            <InfoTile label="Тип запуска" value={runType} />
+            <InfoTile label="Датасет" value={task?.inputAlias} />
+            <InfoTile label="Config" value={task?.configAlias} />
+            <InfoTile label="Инициатор" value={initiatorUsername} />
+            <InfoTile label="Создан" value={formatDateTime(task?.createdAt)} />
+            <InfoTile label="Время запуска" value={formatDateTime(task?.startedAt)} />
+            <InfoTile label="Время окончания" value={formatDateTime(effectiveFinishedAt)} />
+            <InfoTile label="Готово" value={formatDateTime(effectiveDoneAt)} />
+        </div>
+    </PageCard>
+)
 
 export const TaskRunDetailsPage = () => {
     const {projectId, taskId} = useParams()
@@ -36,6 +121,19 @@ export const TaskRunDetailsPage = () => {
         }
     )
 
+    const taskConfig = getTaskConfig(task)
+    const runType = task ? task.type : "stateless"
+    const isSwarm = runType === "swarm"
+
+    const {data: runtimeState, isFetching: isRuntimeStateFetching,
+        refetch: refetchRuntimeState} = useGetTaskRuntimeStateQuery(
+        {projectId, taskId, type: runType},
+        {
+            skip: !projectId || !taskId || !task,
+            refetchOnMountOrArgChange: true,
+        }
+    )
+
     const {data: outputsData, isFetching: isOutputsFetching, isError: isOutputsError,
         error: outputsError, refetch: refetchOutputs} = useGetProjectTaskOutputsQuery(
         {projectId, taskId},
@@ -44,11 +142,34 @@ export const TaskRunDetailsPage = () => {
         }
     )
 
-    const {data: progress} = useGetTaskProgressStreamQuery(
-        {taskId},
+    const {data: liveProgress} = useGetTaskProgressStreamQuery(
+        {taskId, type: runType},
         {
-            skip: !taskId,
+            skip: !taskId || !task,
         }
+    )
+
+    const {data: membersData} = useGetProjectMembersQuery(
+        {projectId, page: 0, size: 1000},
+        {
+            skip: !projectId,
+        }
+    )
+
+    const progressSnapshot = useMemo(
+        () =>
+            buildProgressSnapshot({
+                taskId,
+                payload: runtimeState,
+                type: runType,
+                fallbackConfig: taskConfig,
+            }),
+        [taskId, runtimeState, runType, taskConfig]
+    )
+
+    const progress = useMemo(
+        () => mergeProgressStates(progressSnapshot, liveProgress),
+        [progressSnapshot, liveProgress]
     )
 
     const [triggerDownloadOutput] = useLazyGetTaskOutputContentQuery()
@@ -59,19 +180,20 @@ export const TaskRunDetailsPage = () => {
             error: cancelError,
         }] = useCancelProjectTaskMutation()
 
-    const launchSnapshot = progress?.config ?? null
+    const launchSnapshot = progress?.config ?? taskConfig ?? null
+
     const snapshotJson = useMemo(
         () => (launchSnapshot ? JSON.stringify(launchSnapshot, null, 2) : ""),
         [launchSnapshot]
     )
     const outputs = outputsData?.outputs ?? []
 
-    const microtasks = useMemo(
+    const executionItems = useMemo(
         () =>
-            Object.values(progress?.microtasksByIndex ?? {}).sort(
-                (a, b) => Number(a.displayIndex ?? 0) - Number(b.displayIndex ?? 0)
-            ),
-        [progress]
+            isSwarm
+                ? getOrderedItems(progress?.agentStatesByIndex)
+                : getOrderedItems(progress?.microtasksByIndex),
+        [isSwarm, progress]
     )
 
     const effectiveStatus = progress?.status ?? task?.status
@@ -81,8 +203,13 @@ export const TaskRunDetailsPage = () => {
     const effectiveFinishedAt = progress?.finishedAt ?? task?.finishedAt
     const effectiveDoneAt = progress?.doneAt ?? task?.doneAt
 
+    const projectMembers = membersData?.records ?? []
+    const initiatorUsername =
+        projectMembers.find((member) => member?.userId === task?.launchedByUser)?.username ??
+        task?.initiator ?? task?.launchedByUser
+
     const handleRefresh = async () => {
-        await Promise.all([refetchTask(), refetchOutputs()])
+        await Promise.all([refetchTask(), refetchRuntimeState(), refetchOutputs()])
     }
 
     const handleCancel = async (permissions) => {
@@ -140,7 +267,7 @@ export const TaskRunDetailsPage = () => {
                                     <>
                                         <RefreshButton
                                             onClick={handleRefresh}
-                                            isLoading={isTaskFetching || isOutputsFetching}
+                                            isLoading={isTaskFetching || isOutputsFetching || isRuntimeStateFetching}
                                         />
                                         {permissions?.canManageTasks ? (
                                             <button
@@ -161,45 +288,70 @@ export const TaskRunDetailsPage = () => {
                                     message={getApiErrorMessage(cancelError)}
                                 />
                             ) : null}
-                            <PageCard title="Основное">
-                                <div className="projectsPills">
-                                    <span className={`pill ${getStatusToneClassName(effectiveStatus)}`}>
-                                        Статус: {getTaskStatusLabel(effectiveStatus)}
-                                    </span>
+                            {isSwarm ? (
+                                <div className="projectsRunCardsGrid">
+                                    <RunOverviewCard
+                                        project={project}
+                                        task={task}
+                                        runType={runType}
+                                        effectiveStatus={effectiveStatus}
+                                        effectiveFinishedAt={effectiveFinishedAt}
+                                        effectiveDoneAt={effectiveDoneAt}
+                                        initiatorUsername={initiatorUsername}
+                                    />
+                                    <PageCard title="Конфигурация">
+                                        <div className="projectsInfoGrid">
+                                            <InfoTile label="Agents" value={progress?.summary?.total
+                                                ?? launchSnapshot?.swarm?.agentCount} />
+                                            <InfoTile label="Iterations" value={launchSnapshot?.swarm?.iterations} />
+                                            <InfoTile label="Current iteration" value={progress?.summary?.currentIteration} />
+                                            <InfoTile label="Batch size" value={launchSnapshot?.scheduling?.batchSize} />
+                                            <InfoTile label="Topology type" value={launchSnapshot?.swarm?.topology?.type?.toUpperCase()} />
+                                            <InfoTile label="Neighbors total" value={launchSnapshot?.swarm?.topology?.numberOfNeighbors} />
+                                            <InfoTile label="Executor count" value={launchSnapshot?.scheduling?.parallelism
+                                                ?? launchSnapshot?.scheduling?.maxParallelism} />
+                                            <InfoTile label="Status" value={effectiveStatus} />
+                                            <InfoTile label="Phase" value={progress?.summary?.currentPhase} />
+                                        </div>
+                                    </PageCard>
                                 </div>
-                                <div className="projectsPills">
-                                    <span className="pill">Проект: {project?.projectName ?? "—"}</span>
-                                    <span className="pill">Task ID: {task?.taskId ?? "—"}</span>
-                                    <span className="pill">JAR: {task?.jarAlias ?? "—"}</span>
-                                    <span className="pill">Input: {task?.inputAlias ?? "—"}</span>
-                                    <span className="pill">Config: {task?.configAlias ?? "—"}</span>
-                                    <span className="pill">Создан: {formatDateTime(task?.createdAt)}</span>
-                                    <span className="pill">Начало: {formatDateTime(task?.startedAt)}</span>
-                                    <span className="pill">Конец: {formatDateTime(effectiveFinishedAt)}</span>
-                                    <span className="pill">Готово: {formatDateTime(effectiveDoneAt)}</span>
+                            ) : (
+                                <div className="projectsRunCardsGrid">
+                                    <RunOverviewCard
+                                        project={project}
+                                        task={task}
+                                        runType={runType}
+                                        effectiveStatus={effectiveStatus}
+                                        effectiveFinishedAt={effectiveFinishedAt}
+                                        effectiveDoneAt={effectiveDoneAt}
+                                    />
+                                    <PageCard title="Конфигурация">
+                                        <div className="projectsInfoGrid">
+                                            <InfoTile label="Microtasks" value={progress?.summary?.total} />
+                                            <InfoTile label="Scheduling mode" value={launchSnapshot?.scheduling?.mode} />
+                                            <InfoTile label="Batch size" value={launchSnapshot?.scheduling?.batchSize} />
+                                            <InfoTile
+                                                label="Parallelism"
+                                                value={
+                                                    launchSnapshot?.scheduling?.parallelism ??
+                                                    launchSnapshot?.scheduling?.maxParallelism
+                                                }
+                                            />
+                                            <InfoTile label="Min parallelism" value={launchSnapshot?.scheduling?.minParallelism} />
+                                            <InfoTile label="Worker bound" value={launchSnapshot?.worker?.bound} />
+                                            <InfoTile label="Concurrency" value={launchSnapshot?.worker?.concurrency} />
+                                            <InfoTile label="CPU" value={launchSnapshot?.worker?.resources?.cpu} />
+                                            <InfoTile label="Memory" value={launchSnapshot?.worker?.resources?.memory} />
+                                            <InfoTile label="Microtask timeout" value={launchSnapshot?.timeouts?.microtaskSeconds} />
+                                            <InfoTile label="Task timeout" value={launchSnapshot?.timeouts?.taskSeconds} />
+                                            <InfoTile label="Retry attempts" value={launchSnapshot?.retry?.maxAttempts} />
+                                        </div>
+                                    </PageCard>
                                 </div>
-                            </PageCard>
-                            <PageCard title="Snapshot запуска">
+                            )}
+                            <PageCard title={"Snapshot запуска"}>
                                 {launchSnapshot ? (
                                     <>
-                                        <div className="projectsPills">
-                                            <span className="pill">
-                                                Type: {launchSnapshot?.type ?? "—"}
-                                            </span>
-                                            <span className="pill">
-                                                CPU: {launchSnapshot?.worker?.resources?.cpu ?? "—"}
-                                            </span>
-                                            <span className="pill">
-                                                Memory: {launchSnapshot?.worker?.resources?.memory ?? "—"}
-                                            </span>
-                                            <span className="pill">
-                                                Bound: {launchSnapshot?.worker?.bound ?? "—"}
-                                            </span>
-                                            <span className="pill">
-                                                Concurrency: {launchSnapshot?.worker?.concurrency ?? "—"}
-                                            </span>
-                                        </div>
-
                                         <textarea
                                             className="projectsTextarea"
                                             readOnly
@@ -210,12 +362,14 @@ export const TaskRunDetailsPage = () => {
                                     <p className="projectsHint">Snapshot запуска пока не получен</p>
                                 )}
                             </PageCard>
-                            <PageCard title="Прогресс выполнения">
+                            <PageCard title={"Прогресс выполнения"}>
                                 <TaskExecutionOverview
                                     projectId={projectId}
                                     taskId={taskId}
+                                    type={runType}
                                     summary={progress?.summary}
-                                    microtasks={microtasks}
+                                    items={executionItems}
+                                    config={launchSnapshot}
                                 />
                             </PageCard>
                             <PageCard title="Outputs">

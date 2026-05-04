@@ -26,6 +26,11 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
         control: form.control,
     })
 
+    const executionType = useWatch({
+        control: form.control,
+        name: "config.type",
+    })
+
     const schedulingMode = useWatch({
         control: form.control,
         name: "config.scheduling.mode",
@@ -87,12 +92,9 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                             disabled={isView || isSubmitting}
                             {...form.register("config.type")}>
                             <option value="stateless">stateless</option>
-                            <option value="stateful">stateful</option>
+                            <option value="swarm">swarm</option>
                         </select>
-                        <p
-                            className={
-                                errorMessage("config.type") ? "instructions instructionsError" : ""
-                            }>
+                        <p className={errorMessage("config.type") ? "instructions instructionsError" : ""}>
                             {errorMessage("config.type")}
                         </p>
                     </label>
@@ -113,57 +115,131 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                         </select>
                     </label>
 
-                    {schedulingMode === "fixed" ? (
+                    <label className="projectsField">
+                        <span>batchSize *</span>
+                        <input
+                            className={inputClass("config.scheduling.batchSize")}
+                            disabled={isView || isSubmitting}
+                            type="number"
+                            min="1"
+                            {...form.register("config.scheduling.batchSize")}
+                        />
+                        <p className={errorMessage("config.scheduling.batchSize") ? "instructions instructionsError" : ""}>
+                            {errorMessage("config.scheduling.batchSize")}
+                        </p>
+                    </label>
+                </div>
+
+                {schedulingMode === "fixed" ? (
+                    <label className="projectsField">
+                        <span>parallelism *</span>
+                        <input
+                            className={inputClass("config.scheduling.parallelism")}
+                            disabled={isView || isSubmitting}
+                            type="number"
+                            min="1"
+                            {...form.register("config.scheduling.parallelism")}
+                        />
+                        <p className={errorMessage("config.scheduling.parallelism") ? "instructions instructionsError" : ""}>
+                            {errorMessage("config.scheduling.parallelism")}
+                        </p>
+                    </label>
+                ) : (
+                    <div className="projectsTwoCols">
                         <label className="projectsField">
-                            <span>parallelism *</span>
+                            <span>minParallelism *</span>
                             <input
-                                className={inputClass("config.scheduling.parallelism")}
+                                className={inputClass("config.scheduling.minParallelism")}
                                 disabled={isView || isSubmitting}
                                 type="number"
                                 min="1"
-                                {...form.register("config.scheduling.parallelism")}
+                                {...form.register("config.scheduling.minParallelism")}
                             />
-                            <p className={errorMessage("config.scheduling.parallelism") ? "instructions instructionsError" : ""}>
-                                {errorMessage("config.scheduling.parallelism")}
+                            <p className={errorMessage("config.scheduling.minParallelism") ? "instructions instructionsError" : ""}>
+                                {errorMessage("config.scheduling.minParallelism")}
                             </p>
                         </label>
-                    ) : (
-                        <div className="projectsTwoCols">
-                            <label className="projectsField">
-                                <span>minParallelism *</span>
-                                <input
-                                    className={inputClass("config.scheduling.minParallelism")}
-                                    disabled={isView || isSubmitting}
-                                    type="number"
-                                    min="1"
-                                    {...form.register("config.scheduling.minParallelism")}
-                                />
-                                <p className={errorMessage("config.scheduling.minParallelism") ? "instructions instructionsError" : ""}>
-                                    {errorMessage("config.scheduling.minParallelism")}
-                                </p>
-                            </label>
 
-                            <label className="projectsField">
-                                <span>maxParallelism *</span>
-                                <input
-                                    className={inputClass("config.scheduling.maxParallelism")}
-                                    disabled={isView || isSubmitting}
-                                    type="number"
-                                    min="1"
-                                    {...form.register("config.scheduling.maxParallelism")}
-                                />
-                                <p className={errorMessage("config.scheduling.maxParallelism") ? "instructions instructionsError" : ""}>
-                                    {errorMessage("config.scheduling.maxParallelism")}
-                                </p>
-                            </label>
-                        </div>
-                    )}
-                </div>
+                        <label className="projectsField">
+                            <span>maxParallelism *</span>
+                            <input
+                                className={inputClass("config.scheduling.maxParallelism")}
+                                disabled={isView || isSubmitting}
+                                type="number"
+                                min="1"
+                                {...form.register("config.scheduling.maxParallelism")}
+                            />
+                            <p className={errorMessage("config.scheduling.maxParallelism") ? "instructions instructionsError" : ""}>
+                                {errorMessage("config.scheduling.maxParallelism")}
+                            </p>
+                        </label>
+                    </div>
+                )}
             </div>
 
+            {executionType === "swarm" ? (
+                <div className="projectsCard">
+                    <h3>Swarm</h3>
+                    <div className="projectsTwoCols">
+                        <label className="projectsField">
+                            <span>iterations *</span>
+                            <input
+                                className={inputClass("config.swarm.iterations")}
+                                disabled={isView || isSubmitting}
+                                type="number"
+                                min="1"
+                                {...form.register("config.swarm.iterations")}
+                            />
+                            <p className={errorMessage("config.swarm.iterations") ? "instructions instructionsError" : ""}>
+                                {errorMessage("config.swarm.iterations")}
+                            </p>
+                        </label>
+                        <label className="projectsField">
+                            <span>agentCount *</span>
+                            <input
+                                className={inputClass("config.swarm.agentCount")}
+                                disabled={isView || isSubmitting}
+                                type="number"
+                                min="1"
+                                {...form.register("config.swarm.agentCount")}
+                            />
+                            <p className={errorMessage("config.swarm.agentCount") ? "instructions instructionsError" : ""}>
+                                {errorMessage("config.swarm.agentCount")}
+                            </p>
+                        </label>
+                    </div>
+                    <div className="projectsTwoCols">
+                        <label className="projectsField">
+                            <span>topology.type *</span>
+                            <select
+                                className="projectsSelect"
+                                disabled={isView || isSubmitting}
+                                {...form.register("config.swarm.topology.type")}>
+                                <option value="ring">ring</option>
+                            </select>
+                            <p className={errorMessage("config.swarm.topology.type") ?
+                                "instructions instructionsError" : ""}>
+                                {errorMessage("config.swarm.topology.type")}
+                            </p>
+                        </label>
+                        <label className="projectsField">
+                            <span>numberOfNeighbors *</span>
+                            <input
+                                className={inputClass("config.swarm.topology.numberOfNeighbors")}
+                                disabled={isView || isSubmitting}
+                                type="number"
+                                min="1"
+                                {...form.register("config.swarm.topology.numberOfNeighbors")}
+                            />
+                            <p className={errorMessage("config.swarm.topology.numberOfNeighbors") ? "instructions instructionsError" : ""}>
+                                {errorMessage("config.swarm.topology.numberOfNeighbors")}
+                            </p>
+                        </label>
+                    </div>
+                </div>
+            ) : null}
             <div className="projectsCard">
                 <h3>Worker</h3>
-
                 <div className="projectsTwoCols">
                     <label className="projectsField">
                         <span>bound</span>
@@ -205,7 +281,6 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                         </p>
                     </label>
                 </div>
-
                 <div className="projectsTwoCols">
                     <label className="projectsField">
                         <span>CPU</span>
@@ -225,7 +300,6 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                             {errorMessage("config.worker.resources.cpu")}
                         </p>
                     </label>
-
                     <label className="projectsField">
                         <span>Memory</span>
                         <input
@@ -249,7 +323,6 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
 
             <div className="projectsCard">
                 <h3>Timeouts</h3>
-
                 <div className="projectsTwoCols">
                     <label className="projectsField">
                         <span>microtaskSeconds</span>

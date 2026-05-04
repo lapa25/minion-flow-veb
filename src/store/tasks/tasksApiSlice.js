@@ -41,17 +41,38 @@ const updateMockMicrotaskRecord = (microtaskId, patch) => {
     }
 }
 
-const createTaskProgressInitialState = (taskId) => ({
+const nowIso = () => new Date().toISOString()
+
+const createTaskProgressInitialState = (taskId, type = "stateless") => ({
     taskId,
+    type,
     status: null,
     lastSeq: 0,
     summary: null,
     config: null,
     microtasksByIndex: {},
+    agentStatesByIndex: {},
     connectionStatus: "idle",
     finishedAt: null,
     doneAt: null
 })
+
+const getProgressEntitySpec = (payload) => {
+    if (Array.isArray(payload?.agentStates)) {
+        return {
+            type: "swarm",
+            items: payload.agentStates,
+            idKey: "agentId",
+            mapKey: "agentStatesByIndex",
+        }
+    }
+    return {
+        type: "stateless",
+        items: Array.isArray(payload?.microtasks) ? payload.microtasks : [],
+        idKey: "microtaskId",
+        mapKey: "microtasksByIndex",
+    }
+}
 
 const applyTaskProgressMessage = (draft, payload) => {
     if (!payload || payload.taskId !== draft.taskId) {
@@ -62,27 +83,167 @@ const applyTaskProgressMessage = (draft, payload) => {
         return
     }
     const isPatch = payload.kind === "patch"
+    const spec = getProgressEntitySpec(payload)
     if (!isPatch) {
         draft.microtasksByIndex = {}
+        draft.agentStatesByIndex = {}
         draft.config = payload.config ?? draft.config ?? null
     }
+    draft.type = spec.type
     draft.lastSeq = Number.isFinite(nextSeq) ? nextSeq : draft.lastSeq
     draft.status = payload.status ?? draft.status
     draft.summary = payload.summary ?? draft.summary
+    draft.finishedAt = payload.finishedAt ?? draft.finishedAt
+    draft.doneAt = payload.doneAt ?? draft.doneAt
 
-    if (Array.isArray(payload.microtasks)) {
-        payload.microtasks.forEach((item) => {
-            const displayIndex = Number(item?.displayIndex)
-            if (!Number.isFinite(displayIndex)) {
-                return
+    spec.items.forEach((item) => {
+        const displayIndex = Number(item?.displayIndex)
+        if (!Number.isFinite(displayIndex)) {
+            return
+        }
+        const prevItem = draft[spec.mapKey][displayIndex] ?? {}
+
+        draft[spec.mapKey][displayIndex] = {
+            ...prevItem,
+            ...item,
+            [spec.idKey]: item?.[spec.idKey] ?? prevItem?.[spec.idKey] ?? "",
+            displayIndex,
+            status: item?.status ?? prevItem.status ?? "CREATED",
+        }
+    })
+}
+
+const createMockRuntimeState = ({taskId, type}) => {
+    if (type === "swarm") {
+        const total = 96
+        const iterations = 18
+
+        return {
+            taskId,
+            seq: 0,
+            kind: "snapshot",
+            status: "RUNNING",
+            summary: {
+                total,
+                queued: 21,
+                running: 15,
+                succeeded: 49,
+                failed: 7,
+                timedOut: 4,
+                tasksPerSec: 0.07,
+                currentIteration: iterations,
+                currentPhase: "COMPLETE",
+            },
+            config: {
+                type: "swarm",
+                swarm: {
+                    iterations,
+                    agentCount: total,
+                    topology: {
+                        type: "ring",
+                        numberOfNeighbors: 2,
+                    },
+                },
+                scheduling: {
+                    mode: "fixed",
+                    batchSize: 12,
+                    parallelism: 12,
+                },
+                worker: {
+                    resources: {
+                        cpu: "2",
+                        memory: "1024Mi",
+                    },
+                },
+            },
+            agentStates: Array.from({length: total}, (_, index) => ({
+                agentId: `${taskId}-agent-${index}`,
+                displayIndex: index,
+                status:
+                    index < 49 ? "SUCCEEDED" :
+                        index < 56 ? "FAILED" :
+                            index < 60 ? "TIME_OUT" :
+                                index < 75 ? "RUNNING" :
+                                    "QUEUED",
+                currentIteration: iterations,
+                currentPhase: "COMPLETE",
+            })),
+        }
+    }
+
+    return {
+        taskId,
+        seq: 0,
+        kind: "snapshot",
+        status: "RUNNING",
+        summary: {
+            total: 40,
+            queued: 25,
+            running: 4,
+            succeeded: 8,
+            failed: 2,
+            timedOut: 1,
+            tasksPerSec: 0.08,
+        },
+        microtasks: Array.from({length: 40}, (_, index) => ({
+            microtaskId: `${taskId}-microtask-${index}`,
+            displayIndex: index,
+            status:
+                index < 8 ? "SUCCEEDED" :
+                    index < 10 ? "FAILED" :
+                        index === 10 ? "TIME_OUT" :
+                            index < 15 ? "RUNNING" :
+                                "QUEUED",
+        })),
+    }
+}
+
+const createMockRuntimeMicrotask = ({taskId, microtaskId, type}) => {
+    const isSwarm = type === "swarm"
+
+    return {
+        taskId,
+        microtaskId,
+        displayIndex: Number(String(microtaskId).split("-").at(-1)) || 0,
+        status: "SUCCEEDED",
+        createdAt: nowIso(),
+        startedAt: nowIso(),
+        finishedAt: nowIso(),
+        runDeadline: nowIso(),
+        runTimeoutSeconds: isSwarm ? 3600 : 60,
+        reason: "",
+        ...(isSwarm
+            ? {
+                agentId: `${taskId}-agent-0`,
+                phase: "FINISH",
+                iteration: 2,
             }
-            const prevItem = draft.microtasksByIndex[displayIndex] ?? {}
-            draft.microtasksByIndex[displayIndex] = {
-                microtaskId: item?.microtaskId ?? prevItem.microtaskId ?? "",
-                displayIndex,
-                status: item?.status ?? prevItem.status ?? "CREATED",
-            }
-        })
+            : {}),
+    }
+}
+
+const createMockSwarmAgent = ({taskId, agentId}) => {
+    const agentIndex = Number(String(agentId).split("-").at(-1)) || 0
+
+    return {
+        agentId,
+        taskId,
+        agentIndex,
+        inputData: JSON.stringify({
+            minX: -10.0,
+            maxX: 10.0,
+            minY: -10.0,
+            maxY: 10.0,
+            seed: agentIndex,
+        }),
+        stateData: JSON.stringify({
+            phase: "COMPLETE",
+            iteration: 18,
+            localBest: 84.83,
+            topology: "RING",
+        }),
+        statePhase: "COMPLETE",
+        stateIteration: 18,
     }
 }
 
@@ -142,15 +303,178 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
             }),
         }),
 
+        getTaskRuntimeState: build.query({
+            async queryFn({projectId, taskId, type}, _api, _extraOptions, baseQuery) {
+                if (USE_MOCK) {
+                    return {data: createMockRuntimeState({taskId, type})}
+                }
+                return baseQuery({
+                    url: `/artifact-service/api/projects/${projectId}/tasks/${type}/${taskId}/state`,
+                })
+            },
+        }),
+
+        getTaskRuntimeMicrotask: build.query({
+            async queryFn({projectId, taskId, microtaskId, type}, _api, _extraOptions, baseQuery) {
+                if (USE_MOCK) {
+                    return {data: createMockRuntimeMicrotask({taskId, microtaskId, type})}
+                }
+                return baseQuery({
+                    url: `/artifact-service/api/projects/${projectId}/tasks/${type}/${taskId}/microtasks/${microtaskId}`,
+                })
+            },
+        }),
+
+        getSwarmAgent: build.query({
+            async queryFn({projectId, taskId, agentId}, _api, _extraOptions, baseQuery) {
+                if (USE_MOCK) {
+                    return {data: createMockSwarmAgent({taskId, agentId})}
+                }
+                return baseQuery({
+                    url: `/artifact-service/api/projects/${projectId}/tasks/swarm/${taskId}/agents/${agentId}`,
+                })
+            },
+        }),
+
         getTaskProgressStream: build.query({
-            queryFn: ({taskId}) => ({
-                data: createTaskProgressInitialState(taskId),
+            queryFn: ({taskId, type = "stateless"}) => ({
+                data: createTaskProgressInitialState(taskId, type),
             }),
             keepUnusedDataFor: 0,
-            async onCacheEntryAdded({taskId}, {updateCachedData, cacheDataLoaded, cacheEntryRemoved}) {
+            async onCacheEntryAdded({taskId, type = "stateless"}, {updateCachedData, cacheDataLoaded, cacheEntryRemoved}) {
                 await cacheDataLoaded
 
                 if (USE_MOCK) {
+                    if (type === "swarm") {
+                        let isStopped = false
+                        let seq = 1
+                        let patchTimer = null
+
+                        const total = 96
+                        const iterations = 18
+
+                        const config = {
+                            type: "swarm",
+                            swarm: {
+                                iterations,
+                                agentCount: total,
+                                topology: {
+                                    type: "ring",
+                                    numberOfNeighbors: 2,
+                                },
+                            },
+                            scheduling: {
+                                mode: "fixed",
+                                batchSize: 12,
+                                parallelism: 12,
+                            },
+                            worker: {
+                                resources: {
+                                    cpu: "2",
+                                    memory: "1024Mi",
+                                },
+                            },
+                        }
+
+                        let state = Array.from({length: total}, (_, i) => ({
+                            agentId: `${taskId}-agent-${i}`,
+                            displayIndex: i,
+                            status:
+                                i < 49 ? "SUCCEEDED" :
+                                    i < 56 ? "FAILED" :
+                                        i < 60 ? "TIME_OUT" :
+                                            i < 75 ? "RUNNING" :
+                                                "QUEUED",
+                            currentIteration: iterations,
+                            currentPhase: "COMPLETE",
+                        }))
+
+                        const buildSummary = () => ({
+                            total,
+                            queued: state.filter((item) => item.status === "QUEUED" || item.status === "CREATED").length,
+                            running: state.filter((item) => item.status === "RUNNING" || item.status === "STARTING").length,
+                            succeeded: state.filter((item) => item.status === "SUCCEEDED").length,
+                            failed: state.filter((item) => item.status === "FAILED").length,
+                            timedOut: state.filter((item) => item.status === "TIME_OUT" || item.status === "TIMED_OUT").length,
+                            tasksPerSec: 0.07,
+                            currentIteration: iterations,
+                            currentPhase: "COMPLETE",
+                        })
+
+                        const toIndexMap = () =>
+                            Object.fromEntries(state.map((item) => [item.displayIndex, item]))
+
+                        updateCachedData((draft) => {
+                            draft.connectionStatus = "open"
+                            draft.lastSeq = seq
+                            draft.type = "swarm"
+                            draft.status = "RUNNING"
+                            draft.summary = buildSummary()
+                            draft.config = config
+                            draft.agentStatesByIndex = toIndexMap()
+                            draft.finishedAt = null
+                            draft.doneAt = null
+                        })
+
+                        patchTimer = window.setInterval(() => {
+                            if (isStopped) {
+                                return
+                            }
+
+                            seq += 1
+
+                            const changed = state
+                                .filter((item) => item.status === "RUNNING")
+                                .slice(0, 2)
+                                .map((item) => ({
+                                    ...item,
+                                    status: "SUCCEEDED",
+                                }))
+
+                            const changedIndexes = new Set(changed.map((item) => item.displayIndex))
+
+                            state = state.map((item) => {
+                                if (changedIndexes.has(item.displayIndex)) {
+                                    return changed.find((changedItem) => changedItem.displayIndex === item.displayIndex) ?? item
+                                }
+
+                                if (item.status === "QUEUED" && Math.random() > 0.85) {
+                                    return {
+                                        ...item,
+                                        status: "RUNNING",
+                                    }
+                                }
+
+                                return item
+                            })
+
+                            const summary = buildSummary()
+
+                            updateCachedData((draft) => {
+                                draft.connectionStatus = "open"
+                                draft.lastSeq = seq
+                                draft.status = "RUNNING"
+                                draft.summary = summary
+
+                                state.forEach((item) => {
+                                    draft.agentStatesByIndex[item.displayIndex] = item
+                                })
+                            })
+                        }, 1200)
+
+                        try {
+                            await cacheEntryRemoved
+                        } finally {
+                            isStopped = true
+
+                            if (patchTimer) {
+                                window.clearInterval(patchTimer)
+                            }
+                        }
+
+                        return
+                    }
+
                     let isStopped = false
                     let seq = 1
                     let patchTimer = null
@@ -222,12 +546,14 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                                     summary.failed += 1
                                     break
                                 case "TIME_OUT":
+                                case "TIMED_OUT":
                                     summary.timedOut += 1
                                     break
                                 case "RUNNING":
                                     summary.running += 1
                                     break
                                 case "CREATED":
+                                case "QUEUED":
                                 case "STARTING":
                                 default:
                                     summary.queued += 1
@@ -253,6 +579,7 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                     updateCachedData((draft) => {
                         draft.connectionStatus = "open"
                         draft.lastSeq = seq
+                        draft.type = "stateless"
                         draft.status = "RUNNING"
                         draft.summary = buildSummary()
                         draft.config = config
@@ -485,5 +812,8 @@ export const {
     useCancelProjectTaskMutation,
     useGetProjectTaskOutputsQuery,
     useLazyGetTaskOutputContentQuery,
+    useGetTaskRuntimeStateQuery,
+    useGetTaskRuntimeMicrotaskQuery,
+    useGetSwarmAgentQuery,
     useGetTaskProgressStreamQuery,
 } = tasksApiSlice

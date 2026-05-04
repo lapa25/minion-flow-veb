@@ -27,6 +27,7 @@ import {ProjectArtifactsPage} from "./pages/ProjectArtifactsPage.jsx"
 import {ProjectInputsPage} from "./pages/ProjectInputsPage.jsx"
 import {TaskRunDetailsPage} from "./pages/TaskRunDetailsPage.jsx"
 import {MicrotaskDetailsPage} from "./pages/MicrotaskDetailsPage.jsx"
+import {AgentDetailsPage} from "./pages/AgentDetailsPage.jsx"
 
 function App() {
 
@@ -56,6 +57,10 @@ function App() {
                     <Route
                         path="projects/:projectId/tasks/:taskId/microtasks/:microtaskId"
                         element={<MicrotaskDetailsPage />}
+                    />
+                    <Route
+                        path="projects/:projectId/tasks/:taskId/agents/:agentId"
+                        element={<AgentDetailsPage />}
                     />
                     <Route path="projects/:projectId/artifacts" element={<ProjectArtifactsPage />} />
                     <Route path="projects/:projectId/inputs" element={<ProjectInputsPage />} />

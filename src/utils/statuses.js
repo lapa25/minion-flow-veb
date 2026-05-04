@@ -7,9 +7,11 @@ export const TASK_STATUS_LABELS = {
     CANCELED: "Отменено",
     FAILED: "Ошибка",
     DONE: "Готово",
+    SUCCEEDED: "Успешно",
 }
 
 export const MICROTASK_STATUS_LABELS = {
+    QUEUED: "В очереди",
     CREATED: "Создана",
     STARTING: "Запускается",
     RUNNING: "Выполняется",
@@ -54,4 +56,5 @@ export const getMicrotaskStatusLabel = (status, taskStatus) => {
     }
     return MICROTASK_STATUS_LABELS[status] ?? status
 }
-export const TERMINAL_TASK_STATUSES = ["FINISHED", "TIME_OUT", "CANCELED", "FAILED", "DONE"]
+export const TERMINAL_TASK_STATUSES = ["FINISHED", "TIME_OUT",
+    "CANCELED", "FAILED", "DONE", "SUCCEEDED"]

@@ -6,11 +6,13 @@ import {QueryBoundary} from "../components/guards/QueryBoundary.jsx"
 import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermissionsBoundary.jsx"
 import {LiveLogsConsole} from "../components/microtasks/MicrotaskLogsConsole.jsx"
 import {useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
-import {useGetMicrotaskLogsStreamQuery, useGetProjectMicrotaskQuery} from "../store/microtasks/microtasksApiSlice.js"
+import {useGetTaskRuntimeMicrotaskQuery} from "../store/tasks/tasksApiSlice.js"
+import {useGetMicrotaskLogsStreamQuery} from "../store/microtasks/microtasksApiSlice.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {formatDateTime} from "../utils/datetime.js"
 import {getMicrotaskStatusLabel, getStatusToneClassName} from "../utils/statuses.js"
 import "../styles/ProjectsPages.css"
+import {InfoTile} from "../components/microtasks/InfoTile.jsx";
 
 export const MicrotaskDetailsPage = () => {
     const {projectId, taskId, microtaskId} = useParams()
@@ -20,10 +22,11 @@ export const MicrotaskDetailsPage = () => {
         refetchOnMountOrArgChange: true,
     })
 
-    const {data: microtask, isFetching: isMicrotaskFetching, isError: isMicrotaskError, error: microtaskError,
-        refetch: refetchMicrotask} = useGetProjectMicrotaskQuery(
-        {projectId, taskId, microtaskId},
+    const {data: microtask, isFetching: isMicrotaskFetching, isError: isMicrotaskError,
+        error: microtaskError, refetch: refetchMicrotask} = useGetTaskRuntimeMicrotaskQuery(
+        {projectId, taskId, microtaskId, type: "stateless"},
         {
+            skip: !projectId || !taskId || !microtaskId,
             refetchOnMountOrArgChange: true,
         }
     )
@@ -58,8 +61,8 @@ export const MicrotaskDetailsPage = () => {
         >
             <ProjectPermissionsBoundary
                 projectId={projectId}
-                permission="canViewTaskLogs"
-                deniedMessage="У вас нет доступа к логам и деталям микрозадач"
+                permission="canViewTasks"
+                deniedMessage="У вас нет доступа к деталям микрозадач"
             >
                 {() => (
                     <QueryBoundary
@@ -84,12 +87,17 @@ export const MicrotaskDetailsPage = () => {
                                         Статус: {getMicrotaskStatusLabel(effectiveStatus)}
                                     </span>
                                 </div>
-                                <div className="projectsPills">
-                                    <span className="pill">Проект: {project?.projectName ?? "—"}</span>
-                                    <span className="pill">Task ID: {microtask?.microtaskId ? taskId : taskId}</span>
-                                    <span className="pill">Microtask ID: {microtask?.microtaskId ?? microtaskId}</span>
-                                    <span className="pill">Старт: {formatDateTime(microtask?.started_at)}</span>
-                                    <span className="pill">Финиш: {formatDateTime(microtask?.finished_at)}</span>
+                                <div className="projectsInfoGrid">
+                                    <InfoTile label="Проект" value={project?.projectName} />
+                                    <InfoTile label="Task ID" value={taskId} />
+                                    <InfoTile label="Microtask ID" value={microtask?.microtaskId ?? microtaskId} />
+                                    <InfoTile label="Display index" value={microtask?.displayIndex} />
+                                    <InfoTile label="Создана" value={formatDateTime(microtask?.createdAt ?? microtask?.created_at)} />
+                                    <InfoTile label="Старт" value={formatDateTime(microtask?.startedAt ?? microtask?.started_at)} />
+                                    <InfoTile label="Финиш" value={formatDateTime(microtask?.finishedAt ?? microtask?.finished_at)} />
+                                    <InfoTile label="Deadline" value={formatDateTime(microtask?.runDeadline)} />
+                                    <InfoTile label="Timeout seconds" value={microtask?.runTimeoutSeconds} />
+                                    <InfoTile label="Reason" value={microtask?.reason || "—"} />
                                 </div>
                             </PageCard>
                             <PageCard title="Live-логи микрозадачи">

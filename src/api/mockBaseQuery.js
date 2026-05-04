@@ -1,4 +1,4 @@
-const MOCK_DB_KEY = "mf_mock_db_v1"
+const MOCK_DB_KEY = "mf_mock_db_v2"
 const MOCK_SESSION_KEY = "mf_mock_session_v1"
 
 const MOCK_LATENCY_MS = 120
@@ -112,6 +112,45 @@ const makeDefaultConfig = () => ({
         },
     },
 })
+
+const makeDefaultSwarmConfig = () => ({
+    type: "swarm",
+    swarm: {
+        iterations: 18,
+        agentCount: 96,
+        topology: {
+            type: "ring",
+            numberOfNeighbors: 2,
+        },
+    },
+    scheduling: {
+        mode: "fixed",
+        batchSize: 12,
+        parallelism: 12,
+    },
+    worker: {
+        bound: "cpu",
+        concurrency: 1,
+        resources: {
+            cpu: "2",
+            memory: "1024Mi",
+        },
+    },
+    timeouts: {
+        microtaskSeconds: 3600,
+        taskSeconds: 3600,
+    },
+    retry: {
+        maxAttempts: 0,
+        backoff: {
+            strategy: "fixed",
+            baseMs: 0,
+            maxMs: 0,
+            jitter: false,
+        },
+    },
+})
+
 const createInitialDb = () => {
     const ownerId = "11111111-1111-4111-8111-111111111111"
     const maintainerId = "22222222-2222-4222-8222-222222222222"
@@ -119,6 +158,7 @@ const createInitialDb = () => {
 
     const projectId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     const configId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    const swarmConfigId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"
     const artifactId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
     const inputId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
     const taskId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
@@ -186,6 +226,7 @@ const createInitialDb = () => {
     ]
 
     const configValue = makeDefaultConfig()
+    const swarmConfigValue = makeDefaultSwarmConfig()
 
     const configs = [
         {
@@ -195,6 +236,14 @@ const createInitialDb = () => {
             ownerId,
             createdAt,
             config: configValue,
+        },
+        {
+            configId: swarmConfigId,
+            alias: "default-swarm-config",
+            projectId,
+            ownerId,
+            createdAt,
+            config: swarmConfigValue,
         },
     ]
 
@@ -241,6 +290,7 @@ const createInitialDb = () => {
             projectId,
             launchedByUser: ownerId,
             status: "RUNNING",
+            type: "stateless",
             jarId: artifactId,
             jarAlias: "demo-task-runner.jar",
             inputId,
@@ -333,6 +383,7 @@ const buildTaskSummaryRecord = (task) => ({
     projectId: task.projectId,
     launchedByUser: task.launchedByUser,
     status: task.status,
+    type: task.type ?? task.launchSnapshot?.type ?? "stateless",
     jarId: task.jarId,
     jarAlias: task.jarAlias,
     inputId: task.inputId,
@@ -342,7 +393,8 @@ const buildTaskSummaryRecord = (task) => ({
     createdAt: task.createdAt,
     startedAt: task.startedAt,
     finishedAt: task.finishedAt,
-    doneAt: task.doneAt
+    doneAt: task.doneAt,
+    launchSnapshot: clone(task.launchSnapshot ?? null),
 })
 
 const handleIdentityService = ({db, method, url, body, params}) => {
@@ -627,6 +679,185 @@ const handleProjectService = ({db, method, url, body, params}) => {
     }
 
     return null
+}
+const getTaskRuntimeConfig = (db, task) => {
+    if (task?.launchSnapshot) {
+        return clone(task.launchSnapshot)
+    }
+
+    const config = findConfig(db, task?.configId)
+
+    if (config?.config) {
+        return clone(config.config)
+    }
+
+    return makeDefaultConfig()
+}
+
+const getMockAgentTotal = (config) => {
+    const rawTotal = Number(config?.swarm?.agentCount ?? 96)
+
+    if (!Number.isFinite(rawTotal) || rawTotal <= 0) {
+        return 96
+    }
+
+    return Math.min(rawTotal, 300)
+}
+
+const buildMockRuntimeState = ({db, projectId, taskId, type}) => {
+    const task = db.tasks.find(
+        (item) => item.projectId === projectId && item.taskId === taskId
+    )
+
+    if (!task) {
+        return fail(404, {message: "Запуск не найден"})
+    }
+
+    const config = getTaskRuntimeConfig(db, task)
+
+    if (type === "swarm") {
+        const total = getMockAgentTotal(config)
+        const iterations = Number(config?.swarm?.iterations ?? 18)
+
+        const agentStates = Array.from({length: total}, (_, index) => ({
+            agentId: `${taskId}-agent-${index}`,
+            displayIndex: index,
+            status:
+                index < Math.floor(total * 0.52) ? "SUCCEEDED" :
+                    index < Math.floor(total * 0.60) ? "FAILED" :
+                        index < Math.floor(total * 0.64) ? "TIME_OUT" :
+                            index < Math.floor(total * 0.80) ? "RUNNING" :
+                                "QUEUED",
+            currentIteration: iterations,
+            currentPhase: "COMPLETE",
+        }))
+
+        const summary = {
+            total,
+            queued: agentStates.filter((item) => item.status === "QUEUED").length,
+            running: agentStates.filter((item) => item.status === "RUNNING").length,
+            succeeded: agentStates.filter((item) => item.status === "SUCCEEDED").length,
+            failed: agentStates.filter((item) => item.status === "FAILED").length,
+            timedOut: agentStates.filter((item) => item.status === "TIME_OUT").length,
+            tasksPerSec: 0.07,
+            currentIteration: iterations,
+            currentPhase: "COMPLETE",
+        }
+
+        return ok({taskId, seq: 0, kind: "snapshot", status: task.status,
+            summary, config, agentStates})
+    }
+
+    const microtasks = db.microtasks
+        .filter((item) => item.taskId === taskId)
+        .map((item) => ({
+            microtaskId: item.microtaskId,
+            displayIndex: item.displayIndex,
+            status: item.status,
+        }))
+
+    const summary = {
+        total: microtasks.length,
+        queued: microtasks.filter((item) => ["CREATED", "QUEUED", "STARTING"].includes(item.status)).length,
+        running: microtasks.filter((item) => item.status === "RUNNING").length,
+        succeeded: microtasks.filter((item) => item.status === "SUCCEEDED").length,
+        failed: microtasks.filter((item) => item.status === "FAILED").length,
+        timedOut: microtasks.filter((item) => item.status === "TIME_OUT" || item.status === "TIMED_OUT").length,
+        tasksPerSec: 0.08,
+    }
+
+    return ok({
+        taskId,
+        seq: 0,
+        kind: "snapshot",
+        status: task.status,
+        summary,
+        config,
+        microtasks,
+    })
+}
+
+const buildMockRuntimeMicrotask = ({db, projectId, taskId, microtaskId, type}) => {
+    const task = db.tasks.find(
+        (item) => item.projectId === projectId && item.taskId === taskId
+    )
+
+    if (!task) {
+        return fail(404, {message: "Запуск не найден"})
+    }
+
+    if (type === "swarm") {
+        return ok({
+            taskId,
+            microtaskId,
+            displayIndex: Number(String(microtaskId).split("-").at(-1)) || 0,
+            status: "SUCCEEDED",
+            createdAt: task.createdAt,
+            startedAt: task.startedAt ?? task.createdAt,
+            finishedAt: nowIso(),
+            runDeadline: nowIso(),
+            runTimeoutSeconds: 3600,
+            reason: "",
+            agentId: `${taskId}-agent-0`,
+            phase: "FINISH",
+            iteration: 2,
+        })
+    }
+
+    const microtask = db.microtasks.find(
+        (item) => item.taskId === taskId && item.microtaskId === microtaskId
+    )
+
+    if (!microtask) {
+        return fail(404, {message: "Микрозадача не найдена"})
+    }
+
+    return ok({
+        taskId,
+        microtaskId,
+        displayIndex: microtask.displayIndex,
+        status: microtask.status,
+        createdAt: task.createdAt,
+        startedAt: microtask.startedAt ?? microtask.started_at ?? null,
+        finishedAt: microtask.finishedAt ?? microtask.finished_at ?? null,
+        runDeadline: nowIso(),
+        runTimeoutSeconds: 60,
+        reason: "",
+    })
+}
+
+const buildMockSwarmAgent = ({db, projectId, taskId, agentId}) => {
+    const task = db.tasks.find(
+        (item) => item.projectId === projectId && item.taskId === taskId
+    )
+
+    if (!task) {
+        return fail(404, {message: "Запуск не найден"})
+    }
+
+    const config = getTaskRuntimeConfig(db, task)
+    const agentIndex = Number(String(agentId).split("-").at(-1)) || 0
+
+    return ok({
+        agentId,
+        taskId,
+        agentIndex,
+        inputData: JSON.stringify({
+            minX: -10.0,
+            maxX: 10.0,
+            minY: -10.0,
+            maxY: 10.0,
+            seed: agentIndex,
+        }),
+        stateData: JSON.stringify({
+            phase: "COMPLETE",
+            iteration: Number(config?.swarm?.iterations ?? 18),
+            localBest: 84.83,
+            topology: config?.swarm?.topology?.type ?? "ring",
+        }),
+        statePhase: "COMPLETE",
+        stateIteration: Number(config?.swarm?.iterations ?? 18),
+    })
 }
 const handleArtifactService = ({db, method, url, body, params}) => {
     const configsMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/executionConfigs$/)
@@ -919,6 +1150,42 @@ const handleArtifactService = ({db, method, url, body, params}) => {
         }
     }
 
+    const runtimeStateMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/(stateless|swarm)\/([^/]+)\/state$/
+    )
+
+    if (runtimeStateMatch) {
+        const [, projectId, type, taskId] = runtimeStateMatch
+
+        if (method === "GET") {
+            return buildMockRuntimeState({db, projectId, taskId, type})
+        }
+    }
+
+    const runtimeMicrotaskMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/(stateless|swarm)\/([^/]+)\/microtasks\/([^/]+)$/
+    )
+
+    if (runtimeMicrotaskMatch) {
+        const [, projectId, type, taskId, microtaskId] = runtimeMicrotaskMatch
+
+        if (method === "GET") {
+            return buildMockRuntimeMicrotask({db, projectId, taskId, microtaskId, type})
+        }
+    }
+
+    const swarmAgentMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/swarm\/([^/]+)\/agents\/([^/]+)$/
+    )
+
+    if (swarmAgentMatch) {
+        const [, projectId, taskId, agentId] = swarmAgentMatch
+
+        if (method === "GET") {
+            return buildMockSwarmAgent({db, projectId, taskId, agentId})
+        }
+    }
+
     const tasksMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/tasks$/)
     if (tasksMatch) {
         const [, projectId] = tasksMatch
@@ -942,6 +1209,12 @@ const handleArtifactService = ({db, method, url, body, params}) => {
             const input = findInput(db, payload?.inputId)
             const config = findConfig(db, payload?.configId)
 
+            const taskType = payload?.type ?? config?.config?.type ?? "stateless"
+            const launchSnapshot = {
+                ...clone(config.config),
+                type: taskType,
+            }
+
             if (!jar || !input || !config) {
                 return fail(400, {message: "Некорректные jarId / inputId / configId"})
             }
@@ -954,6 +1227,7 @@ const handleArtifactService = ({db, method, url, body, params}) => {
                 projectId,
                 launchedByUser: currentUser.userId,
                 status: "RUNNING",
+                type: taskType,
                 jarId: jar.artifact.artifactId,
                 jarAlias: jar.alias,
                 inputId: input.artifact.artifactId,
@@ -964,7 +1238,7 @@ const handleArtifactService = ({db, method, url, body, params}) => {
                 startedAt: createdAt,
                 finishedAt: null,
                 doneAt: null,
-                launchSnapshot: clone(config.config),
+                launchSnapshot,
             }
             db.tasks.unshift(task)
 

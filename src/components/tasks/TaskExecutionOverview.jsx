@@ -1,5 +1,5 @@
 import "../../styles/ProjectsStatus.css"
-import {MicrotaskGrid} from "./MicrotaskGrid.jsx"
+import {ExecutionEntityGrid} from "./ExecutionEntityGrid.jsx"
 import {getStatusToneClassName} from "../../utils/statuses.js"
 import {asInt} from "../../utils/numbers.js";
 
@@ -40,21 +40,41 @@ const getSegments = (summary) => {
         }))
 }
 
+const formatRate = (value) => {
+    const numeric = Number(value ?? 0)
+    if (!Number.isFinite(numeric)) {
+        return "0.00"
+    }
+    return numeric.toFixed(2)
+}
+
 const MetricCard = ({label, value, toneClassName = ""}) => (
     <div className={`projectsExecutionMetricCard ${toneClassName}`}>
         <div className="projectsExecutionMetricLabel">{label}</div>
-        <div className="projectsExecutionMetricValue">{value}</div>
+        <div className="projectsExecutionMetricValue">{value ?? "—"}</div>
     </div>
 )
 
-export const TaskExecutionOverview = ({projectId, taskId, summary, microtasks}) => {
+export const TaskExecutionOverview = ({projectId, taskId, type, summary, items, config}) => {
+    const isSwarm = type === "swarm"
     const progressPercent = getProgressPercent(summary)
     const segments = getSegments(summary)
+    const entityType = isSwarm ? "agent" : "microtask"
+
+    const linkBuilder = (item) => {
+        if (isSwarm) {
+            return `/projects/${projectId}/tasks/${taskId}/agents/${item.agentId}`
+        }
+        return `/projects/${projectId}/tasks/${taskId}/microtasks/${item.microtaskId}`
+    }
+
     return (
         <section className="projectsExecutionOverview">
             <div className="projectsExecutionOverviewHeader">
                 <p className="projectsExecutionOverviewHint">
-                    Клик по любой ячейке открывает страницу микрозадачи с live-логами
+                    {isSwarm
+                        ? "Клик по любой ячейке открывает страницу с состоянием агента"
+                        : "Клик по любой ячейке открывает страницу микрозадачи с live-логами"}
                 </p>
             </div>
             <div className="projectsExecutionLegend">
@@ -104,46 +124,53 @@ export const TaskExecutionOverview = ({projectId, taskId, summary, microtasks}) 
                 )}
             </div>
             <div className="projectsExecutionGridPanel">
-                <MicrotaskGrid
-                    projectId={projectId}
-                    taskId={taskId}
-                    microtasks={microtasks}
+                <ExecutionEntityGrid
+                    entityType={entityType}
+                    items={items}
+                    linkBuilder={linkBuilder}
                 />
             </div>
             <div className="projectsExecutionMetricsGrid">
                 <MetricCard
-                    label="Всего задач"
+                    label={isSwarm ? "Agents" : "Microtasks"}
                     value={summary?.total ?? 0}
                 />
                 <MetricCard
-                    label="В очереди"
-                    value={summary?.queued ?? 0}
-                    toneClassName={getStatusToneClassName("QUEUED")}
-                />
-                <MetricCard
-                    label="Исполняется"
-                    value={summary?.running ?? 0}
-                    toneClassName={getStatusToneClassName("RUNNING")}
-                />
-                <MetricCard
-                    label="Упало"
-                    value={summary?.failed ?? 0}
-                    toneClassName={getStatusToneClassName("FAILED")}
-                />
-                <MetricCard
-                    label="Таймаут"
-                    value={summary?.timedOut ?? 0}
-                    toneClassName={getStatusToneClassName("TIME_OUT")}
-                />
-                <MetricCard
-                    label="Успешно"
+                    label="Succeeded"
                     value={summary?.succeeded ?? 0}
                     toneClassName={getStatusToneClassName("SUCCEEDED")}
                 />
                 <MetricCard
-                    label="Задач/сек"
-                    value={summary?.tasksPerSec.toFixed(2) ?? 0}
+                    label="Failed"
+                    value={summary?.failed ?? 0}
+                    toneClassName={getStatusToneClassName("FAILED")}
                 />
+                <MetricCard
+                    label="Timed out"
+                    value={summary?.timedOut ?? 0}
+                    toneClassName={getStatusToneClassName("TIME_OUT")}
+                />
+                <MetricCard
+                    label="Running"
+                    value={summary?.running ?? 0}
+                    toneClassName={getStatusToneClassName("RUNNING")}
+                />
+                <MetricCard
+                    label={isSwarm ? "Agents/sec" : "Tasks/sec"}
+                    value={formatRate(summary?.tasksPerSec)}
+                />
+                {isSwarm ? (
+                    <>
+                        <MetricCard
+                            label="Iteration"
+                            value={`${summary?.currentIteration ?? "—"} / ${config?.swarm?.iterations ?? "—"}`}
+                        />
+                        <MetricCard
+                            label="Phase"
+                            value={summary?.currentPhase ?? "—"}
+                        />
+                    </>
+                ) : null}
             </div>
         </section>
     )

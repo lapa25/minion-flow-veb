@@ -4,8 +4,9 @@ const CPU_PATTERN = /^(\d+m|\d+(?:\.\d+)?)$/i
 const MEMORY_PATTERN = /^\d+(?:Mi|Gi)$/i
 
 const SCHEDULING_MODES = ["asp", "fixed"]
-const EXECUTION_TYPES = ["stateless", "stateful"]
+const EXECUTION_TYPES = ["stateless", "swarm"]
 const WORKER_BOUNDS = ["cpu", "io"]
+const TOPOLOGY_TYPES = ["ring"]
 
 const emptyToUndefined = (value) => {
     if (value === null || value === undefined) {
@@ -53,15 +54,29 @@ const schedulingSchema = z.object({
     mode: z.enum(SCHEDULING_MODES, {
         error: () => ({ message: "Неизвестный scheduling.mode" }),
     }),
+    batchSize: optionalPositiveInt,
     maxParallelism: optionalPositiveInt,
     minParallelism: optionalPositiveInt,
     parallelism: optionalPositiveInt
 })
 
+const swarmSchema = z.object({
+    iterations: optionalPositiveInt,
+    agentCount: optionalPositiveInt,
+    topology: z.object({
+        type: z.enum(TOPOLOGY_TYPES, {
+            error: () => ({ message: "Пока поддерживается только topology.type=ring" }),
+        }),
+        numberOfNeighbors: optionalPositiveInt,
+    }).optional(),
+}).optional()
+
 const executionConfigSchema = z.object({
     type: z.enum(EXECUTION_TYPES, {
-        error: () => ({ message: "type должен быть stateless или stateful" }),
+        error: () => ({ message: "type должен быть stateless или swarm" }),
     }).optional(),
+
+    swarm: swarmSchema,
 
     scheduling: schedulingSchema,
 
@@ -92,13 +107,21 @@ export const baseConfigFormSchema = z.object({
 })
 
 const validateConfigForm = (data, form) => {
-    const microtaskSeconds = data.config?.timeouts?.microtaskSeconds
-    const taskSeconds = data.config?.timeouts?.taskSeconds
-    const baseMs = data.config?.retry?.backoff?.baseMs
-    const maxMs = data.config?.retry?.backoff?.maxMs
+    const config = data.config
+    if (!config) {
+        return
+    }
 
-    if (microtaskSeconds !== undefined && taskSeconds !== undefined &&
-        microtaskSeconds > taskSeconds) {
+    const microtaskSeconds = config.timeouts?.microtaskSeconds
+    const taskSeconds = config.timeouts?.taskSeconds
+    const baseMs = config.retry?.backoff?.baseMs
+    const maxMs = config.retry?.backoff?.maxMs
+
+    if (
+        microtaskSeconds !== undefined &&
+        taskSeconds !== undefined &&
+        microtaskSeconds > taskSeconds
+    ) {
         form.addIssue({
             code: "custom",
             path: ["config", "timeouts", "microtaskSeconds"],
@@ -113,8 +136,9 @@ const validateConfigForm = (data, form) => {
             message: "maxMs не должен быть меньше baseMs",
         })
     }
-    const scheduling = data.config?.scheduling
-    if (scheduling.mode === "asp") {
+
+    const scheduling = config.scheduling
+    if (scheduling?.mode === "asp") {
         if (scheduling.minParallelism === undefined) {
             form.addIssue({
                 code: "custom",
@@ -146,6 +170,36 @@ const validateConfigForm = (data, form) => {
             message: "Для mode=fixed укажите parallelism"
         })
     }
+    if (config.type === "swarm") {
+        if (config.swarm?.iterations === undefined) {
+            form.addIssue({
+                code: "custom",
+                path: ["config", "swarm", "iterations"],
+                message: "Для swarm укажите iterations",
+            })
+        }
+        if (config.swarm?.agentCount === undefined) {
+            form.addIssue({
+                code: "custom",
+                path: ["config", "swarm", "agentCount"],
+                message: "Для swarm укажите agentCount",
+            })
+        }
+        if (!config.swarm?.topology?.type) {
+            form.addIssue({
+                code: "custom",
+                path: ["config", "swarm", "topology", "type"],
+                message: "Для swarm укажите topology.type",
+            })
+        }
+        if (config.swarm?.topology?.numberOfNeighbors === undefined) {
+            form.addIssue({
+                code: "custom",
+                path: ["config", "swarm", "topology", "numberOfNeighbors"],
+                message: "Для swarm укажите общее число соседей",
+            })
+        }
+    }
 }
 
 export const configFormSchema = baseConfigFormSchema.superRefine(validateConfigForm)
@@ -154,11 +208,20 @@ export const configFormDefaultValues = {
     alias: "",
     config: {
         type: "stateless",
+        swarm: {
+            iterations: 10,
+            agentCount: 10000,
+            topology: {
+                type: "ring",
+                numberOfNeighbors: 4,
+            },
+        },
         scheduling: {
             mode: "asp",
+            batchSize: 12,
             maxParallelism: 200,
             minParallelism: 1,
-            parallelism: undefined
+            parallelism: undefined,
         },
         worker: {
             bound: "cpu",
@@ -227,49 +290,62 @@ export const toConfigFormValues = (dto = {}) => {
 
 export const toConfigPayload = (values) => {
     const data = configFormSchema.parse(values)
-    const sch = data.config.scheduling.mode === "asp"
-            ? {
-                mode: "asp",
-                maxParallelism: data.config.scheduling.maxParallelism,
-                minParallelism: data.config.scheduling.minParallelism
-            }
-            : {
-                mode: "fixed",
-                parallelism: data.config.scheduling.parallelism
-            }
+    const config = data.config
+    const scheduling = config.scheduling.mode === "asp"
+        ? {
+            mode: "asp",
+            batchSize: config.scheduling.batchSize,
+            maxParallelism: config.scheduling.maxParallelism,
+            minParallelism: config.scheduling.minParallelism,
+        }
+        : {
+            mode: "fixed",
+            batchSize: config.scheduling.batchSize,
+            parallelism: config.scheduling.parallelism,
+        }
     return compactObject({
         alias: data.alias,
-        config: data.config
+        config: config
             ? {
-                type: data.config.type,
-                scheduling: sch,
-                worker: data.config.worker
+                type: config.type,
+                swarm: config.type === "swarm"
                     ? {
-                        bound: data.config.worker.bound,
-                        concurrency: data.config.worker.concurrency,
-                        resources: data.config.worker.resources
+                        iterations: config.swarm?.iterations,
+                        agentCount: config.swarm?.agentCount,
+                        topology: {
+                            type: config.swarm?.topology?.type,
+                            numberOfNeighbors: config.swarm?.topology?.numberOfNeighbors,
+                        },
+                    }
+                    : undefined,
+                scheduling,
+                worker: config.worker
+                    ? {
+                        bound: config.worker.bound,
+                        concurrency: config.worker.concurrency,
+                        resources: config.worker.resources
                             ? {
-                                cpu: data.config.worker.resources.cpu,
-                                memory: data.config.worker.resources.memory,
+                                cpu: config.worker.resources.cpu,
+                                memory: config.worker.resources.memory,
                             }
                             : undefined,
                     }
                     : undefined,
-                timeouts: data.config.timeouts
+                timeouts: config.timeouts
                     ? {
-                        microtaskSeconds: data.config.timeouts.microtaskSeconds,
-                        taskSeconds: data.config.timeouts.taskSeconds,
+                        microtaskSeconds: config.timeouts.microtaskSeconds,
+                        taskSeconds: config.timeouts.taskSeconds,
                     }
                     : undefined,
-                retry: data.config.retry
+                retry: config.retry
                     ? {
-                        maxAttempts: data.config.retry.maxAttempts,
-                        backoff: data.config.retry.backoff
+                        maxAttempts: config.retry.maxAttempts,
+                        backoff: config.retry.backoff
                             ? {
-                                strategy: data.config.retry.backoff.strategy,
-                                baseMs: data.config.retry.backoff.baseMs,
-                                maxMs: data.config.retry.backoff.maxMs,
-                                jitter: data.config.retry.backoff.jitter,
+                                strategy: config.retry.backoff.strategy,
+                                baseMs: config.retry.backoff.baseMs,
+                                maxMs: config.retry.backoff.maxMs,
+                                jitter: config.retry.backoff.jitter,
                             }
                             : undefined,
                     }
