@@ -1,10 +1,10 @@
-import { z } from "zod"
+import {z} from "zod"
 
 const CPU_PATTERN = /^(\d+m|\d+(?:\.\d+)?)$/i
 const MEMORY_PATTERN = /^\d+(?:Mi|Gi)$/i
 
 const SCHEDULING_MODES = ["asp", "fixed"]
-const EXECUTION_TYPES = ["stateless", "swarm"]
+const EXECUTION_TYPES = ["stateless", "swarm-sync"]
 const WORKER_BOUNDS = ["cpu", "io"]
 const TOPOLOGY_TYPES = ["ring"]
 
@@ -52,12 +52,12 @@ const backoffSchema = z.object({
 
 const schedulingSchema = z.object({
     mode: z.enum(SCHEDULING_MODES, {
-        error: () => ({ message: "Неизвестный scheduling.mode" }),
+        error: () => ({message: "Неизвестный scheduling.mode"}),
     }),
     batchSize: optionalPositiveInt,
     maxParallelism: optionalPositiveInt,
     minParallelism: optionalPositiveInt,
-    parallelism: optionalPositiveInt
+    parallelism: optionalPositiveInt,
 })
 
 const swarmSchema = z.object({
@@ -72,8 +72,8 @@ const swarmSchema = z.object({
 }).optional()
 
 const executionConfigSchema = z.object({
-    type: z.enum(EXECUTION_TYPES, {
-        error: () => ({ message: "type должен быть stateless или swarm" }),
+    executionType: z.enum(EXECUTION_TYPES, {
+        error: () => ({message: "executionType должен быть stateless или swarm-sync"}),
     }).optional(),
 
     swarm: swarmSchema,
@@ -170,33 +170,33 @@ const validateConfigForm = (data, form) => {
             message: "Для mode=fixed укажите parallelism"
         })
     }
-    if (config.type === "swarm") {
+    if (config.executionType === "swarm-sync") {
         if (config.swarm?.iterations === undefined) {
             form.addIssue({
                 code: "custom",
                 path: ["config", "swarm", "iterations"],
-                message: "Для swarm укажите iterations",
+                message: "Для swarm-sync укажите iterations",
             })
         }
         if (config.swarm?.agentCount === undefined) {
             form.addIssue({
                 code: "custom",
                 path: ["config", "swarm", "agentCount"],
-                message: "Для swarm укажите agentCount",
+                message: "Для swarm-sync укажите agentCount",
             })
         }
         if (!config.swarm?.topology?.type) {
             form.addIssue({
                 code: "custom",
                 path: ["config", "swarm", "topology", "type"],
-                message: "Для swarm укажите topology.type",
+                message: "Для swarm-sync укажите topology.type",
             })
         }
         if (config.swarm?.topology?.numberOfNeighbors === undefined) {
             form.addIssue({
                 code: "custom",
                 path: ["config", "swarm", "topology", "numberOfNeighbors"],
-                message: "Для swarm укажите общее число соседей",
+                message: "Для swarm-sync укажите общее число соседей",
             })
         }
     }
@@ -207,7 +207,7 @@ export const configFormSchema = baseConfigFormSchema.superRefine(validateConfigF
 export const configFormDefaultValues = {
     alias: "",
     config: {
-        type: "stateless",
+        executionType: "stateless",
         swarm: {
             iterations: 10,
             agentCount: 10000,
@@ -307,8 +307,8 @@ export const toConfigPayload = (values) => {
         alias: data.alias,
         config: config
             ? {
-                type: config.type,
-                swarm: config.type === "swarm"
+                executionType: config.executionType,
+                swarm: config.executionType === "swarm-sync"
                     ? {
                         iterations: config.swarm?.iterations,
                         agentCount: config.swarm?.agentCount,

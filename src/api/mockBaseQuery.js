@@ -1,4 +1,4 @@
-const MOCK_DB_KEY = "mf_mock_db_v2"
+const MOCK_DB_KEY = "mf_mock_db_v3"
 const MOCK_SESSION_KEY = "mf_mock_session_v1"
 
 const MOCK_LATENCY_MS = 120
@@ -16,27 +16,91 @@ const createId = (prefix = "id") => {
     return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now()}`
 }
 
+const normalizeExecutionType = (value) => {
+    const raw = String(value ?? "stateless").toLowerCase()
+
+    if (raw === "swarm" || raw === "swarm-sync") {
+        return "swarm-sync"
+    }
+
+    return "stateless"
+}
+
+const normalizeTaskStatus = (value) => {
+    const status = String(value ?? "CREATED").toUpperCase()
+
+    if (status === "TIMEOUT" || status === "TIMED_OUT") {
+        return "TIME_OUT"
+    }
+
+    return status
+}
+
+const normalizeEntityStatus = (value) => {
+    const status = String(value ?? "QUEUED").toUpperCase()
+
+    if (status === "TIME_OUT" || status === "TIMEOUT") {
+        return "TIMED_OUT"
+    }
+
+    if (status === "CREATED") {
+        return "QUEUED"
+    }
+
+    return status
+}
+
+const parseQueryString = (url) => {
+    const [path, queryString = ""] = String(url ?? "").split("?")
+    const params = {}
+
+    if (queryString) {
+        const searchParams = new URLSearchParams(queryString)
+        for (const [key, value] of searchParams.entries()) {
+            params[key] = value
+        }
+    }
+
+    return { path, params }
+}
+
 const normalizeArgs = (args) => {
     if (typeof args === "string") {
-        return {url: args, method: "GET", params: {}, body: undefined, headers: {}}
+        const { path, params } = parseQueryString(args)
+        return {
+            url: path,
+            method: "GET",
+            params,
+            body: undefined,
+            headers: {},
+        }
     }
+
+    const { path, params: urlParams } = parseQueryString(args?.url ?? "")
+
     return {
-        url: args?.url ?? "",
+        url: path,
         method: String(args?.method ?? "GET").toUpperCase(),
-        params: args?.params ?? {},
+        params: {
+            ...urlParams,
+            ...(args?.params ?? {}),
+        },
         body: args?.body,
-        headers: args?.headers ?? {}
+        headers: args?.headers ?? {},
     }
 }
 
 const parseBody = (body) => {
     if (body instanceof FormData) {
         const result = {}
+
         for (const [key, value] of body.entries()) {
             result[key] = value
         }
+
         return result
     }
+
     if (typeof body === "string") {
         try {
             return JSON.parse(body)
@@ -44,11 +108,36 @@ const parseBody = (body) => {
             return body
         }
     }
+
     return body ?? {}
 }
 
-const ok = (data) => ({data})
-const fail = (status, data) => ({error: {status, data}})
+const readFileContent = async (file, fallback) => {
+    if (file && typeof file.text === "function") {
+        try {
+            return await file.text()
+        } catch {
+            return fallback
+        }
+    }
+
+    return fallback
+}
+
+const ok = (data) => ({ data })
+
+const fail = (status, data) => ({
+    error: {
+        status,
+        data,
+    },
+})
+
+const failCode = (status, code, message) =>
+    fail(status, {
+        code,
+        message,
+    })
 
 const paginate = (records, pageRaw, sizeRaw) => {
     const total = records.length
@@ -58,7 +147,13 @@ const paginate = (records, pageRaw, sizeRaw) => {
     const start = pageIndex * pageSize
     const pagedRecords = records.slice(start, start + pageSize)
 
-    return {total, pageCount, pageSize, pageIndex, records: pagedRecords}
+    return {
+        total,
+        pageCount,
+        pageSize,
+        pageIndex,
+        records: pagedRecords,
+    }
 }
 
 const getSession = () => {
@@ -75,16 +170,30 @@ const setSession = (value) => {
         window.localStorage.removeItem(MOCK_SESSION_KEY)
         return
     }
+
     window.localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(value))
 }
 
 const createAccessJwt = (userId) => `mock-access-token-${userId}`
 
-const makeArtifactMeta = ({artifactId, originalName, size, contentType, createdAt, ownerId}) => ({
-    artifactId, size, originalName, contentType, createdAt, ownerId})
+const makeArtifactMeta = ({
+                              artifactId,
+                              originalName,
+                              size,
+                              contentType,
+                              createdAt,
+                              ownerId,
+                          }) => ({
+    artifactId,
+    size,
+    originalName,
+    contentType,
+    createdAt,
+    ownerId,
+})
 
 const makeDefaultConfig = () => ({
-    type: "stateless",
+    executionType: "stateless",
     scheduling: {
         mode: "asp",
         minParallelism: 1,
@@ -114,7 +223,7 @@ const makeDefaultConfig = () => ({
 })
 
 const makeDefaultSwarmConfig = () => ({
-    type: "swarm",
+    executionType: "swarm-sync",
     swarm: {
         iterations: 18,
         agentCount: 96,
@@ -151,6 +260,37 @@ const makeDefaultSwarmConfig = () => ({
     },
 })
 
+const makeLogRecords = (microtaskId, status = "SUCCEEDED") => {
+    const createdAt = nowIso()
+
+    const base = [
+        `microtask=${microtaskId} state=STARTING`,
+        "loading dataset row",
+        "initializing worker",
+        "processing chunk 1",
+        "processing chunk 2",
+    ]
+
+    const finishMessages =
+        status === "FAILED"
+            ? ["worker reported execution error", "microtask state=FAILED"]
+            : status === "TIMED_OUT"
+                ? ["execution timed out", "microtask state=TIMED_OUT"]
+                : ["completed successfully", "microtask state=SUCCEEDED"]
+
+    return [...base, ...finishMessages].map((message, index) => ({
+        loglevel:
+            status === "FAILED" && index >= base.length
+                ? "ERROR"
+                : status === "TIMED_OUT" && index >= base.length
+                    ? "WARN"
+                    : "INFO",
+        seq: index,
+        timestamp: createdAt,
+        message,
+    }))
+}
+
 const createInitialDb = () => {
     const ownerId = "11111111-1111-4111-8111-111111111111"
     const maintainerId = "22222222-2222-4222-8222-222222222222"
@@ -159,10 +299,15 @@ const createInitialDb = () => {
     const projectId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     const configId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     const swarmConfigId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"
+
     const artifactId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
     const inputId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
     const taskId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    const swarmTaskId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1"
+
     const outputId = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    const swarmOutputId = "ffffffff-ffff-4fff-8fff-fffffffffff1"
 
     const startedAt = nowIso()
     const createdAt = startedAt
@@ -250,6 +395,7 @@ const createInitialDb = () => {
     const artifactContent = "mock jar binary content"
     const inputContent = `{"id":1,"value":"hello"}\n{"id":2,"value":"world"}`
     const outputContent = `{"result":"ok","count":2}`
+    const swarmOutputContent = `{"result":"swarm-ok","best":84.83}`
 
     const artifacts = [
         {
@@ -290,7 +436,8 @@ const createInitialDb = () => {
             projectId,
             launchedByUser: ownerId,
             status: "RUNNING",
-            type: "stateless",
+            taskStatus: "RUNNING",
+            executionType: "stateless",
             jarId: artifactId,
             jarAlias: "demo-task-runner.jar",
             inputId,
@@ -302,6 +449,25 @@ const createInitialDb = () => {
             finishedAt: null,
             doneAt: null,
             launchSnapshot: clone(configValue),
+        },
+        {
+            taskId: swarmTaskId,
+            projectId,
+            launchedByUser: ownerId,
+            status: "RUNNING",
+            taskStatus: "RUNNING",
+            executionType: "swarm-sync",
+            jarId: artifactId,
+            jarAlias: "demo-task-runner.jar",
+            inputId,
+            inputAlias: "demo-input",
+            configId: swarmConfigId,
+            configAlias: "default-swarm-config",
+            createdAt,
+            startedAt,
+            finishedAt: null,
+            doneAt: null,
+            launchSnapshot: clone(swarmConfigValue),
         },
     ]
 
@@ -320,70 +486,264 @@ const createInitialDb = () => {
             },
             content: outputContent,
         },
+        {
+            projectId,
+            taskId: swarmTaskId,
+            outputId: swarmOutputId,
+            meta: {
+                artifactId: swarmOutputId,
+                size: swarmOutputContent.length,
+                originalName: "swarm-result.json",
+                contentType: "application/json",
+                createdAt,
+                ownerId,
+            },
+            content: swarmOutputContent,
+        },
     ]
 
-    const microtasks = Array.from({length: 40}, (_, i) => ({
-        microtaskId: `${taskId}-microtask-${i}`,
-        taskId,
-        projectId,
-        displayIndex: i,
-        status:
-            i < 3 ? "SUCCEEDED" :
-                i === 3 ? "FAILED" :
-                    i === 4 ? "TIME_OUT" :
-                        "CREATED",
-        started_at: i <= 4 ? startedAt : null,
-        finished_at: i < 4 ? startedAt : null,
+    const microtasks = Array.from({ length: 40 }, (_, i) => {
+        const status =
+            i < 8
+                ? "SUCCEEDED"
+                : i === 8
+                    ? "FAILED"
+                    : i === 9
+                        ? "TIMED_OUT"
+                        : i < 14
+                            ? "RUNNING"
+                            : "QUEUED"
+
+        return {
+            microtaskId: `${taskId}-microtask-${i}`,
+            taskId,
+            projectId,
+            displayIndex: i,
+            status,
+            createdAt,
+            startedAt: ["RUNNING", "SUCCEEDED", "FAILED", "TIMED_OUT"].includes(status)
+                ? startedAt
+                : null,
+            finishedAt: ["SUCCEEDED", "FAILED", "TIMED_OUT"].includes(status)
+                ? startedAt
+                : null,
+            runDeadline: nowIso(),
+            runTimeoutSeconds: 60,
+            reason:
+                status === "FAILED"
+                    ? "mock failure"
+                    : status === "TIMED_OUT"
+                        ? "mock timeout"
+                        : "",
+        }
+    })
+
+    const microtaskLogs = Object.fromEntries(
+        microtasks.map((item) => [
+            item.microtaskId,
+            makeLogRecords(item.microtaskId, item.status),
+        ])
+    )
+
+    return {
+        users,
+        projects,
+        memberships,
+        configs,
+        artifacts,
+        inputs,
+        tasks,
+        outputs,
+        microtasks,
+        microtaskLogs,
+        passwordResetRequests: [],
+    }
+}
+
+const normalizeDb = (db) => {
+    const nextDb = {
+        users: [],
+        projects: [],
+        memberships: [],
+        configs: [],
+        artifacts: [],
+        inputs: [],
+        tasks: [],
+        outputs: [],
+        microtasks: [],
+        microtaskLogs: {},
+        passwordResetRequests: [],
+        ...(db ?? {}),
+    }
+
+    nextDb.tasks = (nextDb.tasks ?? []).map((task) => {
+        const executionType = normalizeExecutionType(
+            task.executionType ?? task.type ?? task.launchSnapshot?.type
+        )
+
+        const taskStatus = normalizeTaskStatus(task.taskStatus ?? task.status)
+
+        return {
+            ...task,
+            executionType,
+            taskStatus,
+            status: task.status ?? taskStatus,
+        }
+    })
+
+    nextDb.microtasks = (nextDb.microtasks ?? []).map((microtask) => ({
+        ...microtask,
+        status: normalizeEntityStatus(microtask.status),
+        createdAt: microtask.createdAt ?? microtask.created_at ?? nowIso(),
+        startedAt: microtask.startedAt ?? microtask.started_at ?? null,
+        finishedAt: microtask.finishedAt ?? microtask.finished_at ?? null,
+        runDeadline: microtask.runDeadline ?? nowIso(),
+        runTimeoutSeconds: microtask.runTimeoutSeconds ?? 60,
+        reason: microtask.reason ?? "",
     }))
 
-    return {users, projects, memberships, configs, artifacts, inputs,
-        tasks, outputs, microtasks, passwordResetRequests: []}
+    nextDb.microtaskLogs = nextDb.microtaskLogs ?? {}
+
+    nextDb.microtasks.forEach((microtask) => {
+        if (!nextDb.microtaskLogs[microtask.microtaskId]) {
+            nextDb.microtaskLogs[microtask.microtaskId] = makeLogRecords(
+                microtask.microtaskId,
+                microtask.status
+            )
+        }
+    })
+
+    return nextDb
 }
 
 const readDb = () => {
     try {
         const raw = window.localStorage.getItem(MOCK_DB_KEY)
+
         if (raw) {
-            return JSON.parse(raw)
+            return normalizeDb(JSON.parse(raw))
         }
     } catch {
-        // игнор в моке
+        // ignore mock storage errors
     }
+
     const initialDb = createInitialDb()
     window.localStorage.setItem(MOCK_DB_KEY, JSON.stringify(initialDb))
     return initialDb
 }
 
 const writeDb = (db) => {
-    window.localStorage.setItem(MOCK_DB_KEY, JSON.stringify(db))
+    window.localStorage.setItem(MOCK_DB_KEY, JSON.stringify(normalizeDb(db)))
 }
+
 const requireAuth = (db) => {
     const session = getSession()
+
     if (!session?.userId) {
         return null
     }
+
     return db.users.find((item) => item.userId === session.userId) ?? null
 }
 
 const findProject = (db, projectId) =>
     db.projects.find((item) => item.projectId === projectId) ?? null
 
-const findConfig = (db, configId) =>
-    db.configs.find((item) => item.configId === configId) ?? null
+const findConfig = (db, projectId, configId) =>
+    db.configs.find(
+        (item) => item.projectId === projectId && item.configId === configId
+    ) ?? null
 
-const findArtifact = (db, artifactId) =>
-    db.artifacts.find((item) => item.artifact?.artifactId === artifactId) ?? null
+const findArtifact = (db, projectId, artifactId) =>
+    db.artifacts.find(
+        (item) =>
+            item.projectId === projectId &&
+            item.artifact?.artifactId === artifactId
+    ) ?? null
 
-const findInput = (db, artifactId) =>
-    db.inputs.find((item) => item.artifact?.artifactId === artifactId) ?? null
+const findInput = (db, projectId, artifactId) =>
+    db.inputs.find(
+        (item) =>
+            item.projectId === projectId &&
+            item.artifact?.artifactId === artifactId
+    ) ?? null
 
+const findTask = (db, projectId, taskId) =>
+    db.tasks.find(
+        (item) => item.projectId === projectId && item.taskId === taskId
+    ) ?? null
+
+const findMicrotask = (db, projectId, taskId, microtaskId) =>
+    db.microtasks.find(
+        (item) =>
+            item.projectId === projectId &&
+            item.taskId === taskId &&
+            item.microtaskId === microtaskId
+    ) ?? null
+
+const getProjectMembership = (db, projectId, userId) =>
+    db.memberships.find(
+        (item) => item.projectId === projectId && item.userId === userId
+    ) ?? null
+
+const requireProjectAccess = (db, projectId) => {
+    const currentUser = requireAuth(db)
+
+    if (!currentUser) {
+        return {
+            error: failCode(401, "insufficientPermission", "Нужна авторизация"),
+        }
+    }
+
+    const project = findProject(db, projectId)
+
+    if (!project) {
+        return {
+            error: failCode(401, "projectNotFound", "Проект не найден"),
+        }
+    }
+
+    const membership = getProjectMembership(db, projectId, currentUser.userId)
+
+    if (!membership) {
+        return {
+            error: failCode(401, "insufficientPermission", "Недостаточно прав"),
+        }
+    }
+
+    return {
+        currentUser,
+        project,
+        membership,
+    }
+}
+
+const isManagerRole = (memberRole) =>
+    memberRole === "OWNER" || memberRole === "MAINTAINER"
+
+const requireProjectManager = (db, projectId) => {
+    const access = requireProjectAccess(db, projectId)
+
+    if (access.error) {
+        return access
+    }
+
+    if (!isManagerRole(access.membership?.memberRole)) {
+        return {
+            error: failCode(401, "insufficientPermission", "Недостаточно прав"),
+        }
+    }
+
+    return access
+}
 
 const buildTaskSummaryRecord = (task) => ({
     taskId: task.taskId,
     projectId: task.projectId,
     launchedByUser: task.launchedByUser,
-    status: task.status,
-    type: task.type ?? task.launchSnapshot?.type ?? "stateless",
+    status: task.status ?? task.taskStatus,
+    taskStatus: task.taskStatus ?? task.status,
+    executionType: normalizeExecutionType(task.executionType ?? task.type),
     jarId: task.jarId,
     jarAlias: task.jarAlias,
     inputId: task.inputId,
@@ -397,340 +757,34 @@ const buildTaskSummaryRecord = (task) => ({
     launchSnapshot: clone(task.launchSnapshot ?? null),
 })
 
-const handleIdentityService = ({db, method, url, body, params}) => {
-    if (url === "/identity-service/api/accounts" && method === "POST") {
-        const payload = parseBody(body)
-        const existingUser = db.users.find((item) =>
-            item.email.toLowerCase() === String(payload?.email ?? "").toLowerCase()
-        )
-        if (existingUser) {
-            return fail(409, {message: "Пользователь с таким email уже существует"})
-        }
-        const newUser = {
-            userId: createId("user"),
-            username: String(payload?.username ?? "").trim(),
-            email: String(payload?.email ?? "").trim(),
-            password: String(payload?.password ?? ""),
-            status: "ACTIVE",
-        }
-        db.users.push(newUser)
-        writeDb(db)
-        return ok({
-            userId: newUser.userId,
-            username: newUser.username,
-            email: newUser.email,
-            status: newUser.status,
-        })
-    }
+const buildTaskStatsPayload = (db, task, executionType) => {
+    const normalizedExecutionType = normalizeExecutionType(executionType)
 
-    if (url === "/identity-service/api/sessions" && method === "POST") {
-        const payload = parseBody(body)
-        const user = db.users.find((item) =>
-            item.email.toLowerCase() === String(payload?.email ?? "").toLowerCase()
-        )
-        if (!user || user.password !== payload?.password) {
-            return fail(401, {message: "Неверный email или пароль"})
-        }
-        setSession({userId: user.userId})
-        return ok({accessJWT: createAccessJwt(user.userId)})
-    }
+    if (normalizedExecutionType === "swarm-sync") {
+        const config = task.launchSnapshot ?? makeDefaultSwarmConfig()
+        const total = Math.min(Number(config?.swarm?.agentCount ?? 96) || 96, 300)
+        const iterations = Number(config?.swarm?.iterations ?? 18) || 18
 
-    if (url === "/identity-service/api/sessions/refresh" && method === "POST") {
-        const session = getSession()
-        if (!session?.userId) {
-            return fail(401, {message: "Сессия не найдена"})
-        }
-        return ok({accessJWT: createAccessJwt(session.userId)})
-    }
+        const agentStates = Array.from({ length: total }, (_, index) => {
+            const status =
+                index < Math.floor(total * 0.52)
+                    ? "SUCCEEDED"
+                    : index < Math.floor(total * 0.6)
+                        ? "FAILED"
+                        : index < Math.floor(total * 0.64)
+                            ? "TIMED_OUT"
+                            : index < Math.floor(total * 0.8)
+                                ? "RUNNING"
+                                : "QUEUED"
 
-    if (url === "/identity-service/api/sessions/me" && method === "DELETE") {
-        setSession(null)
-        return ok({message: "logged out"})
-    }
-
-    if (url === "/identity-service/api/accounts/me" && method === "GET") {
-        const currentUser = requireAuth(db)
-        if (!currentUser) {
-            return fail(401, {message: "Нужна авторизация"})
-        }
-        return ok({
-            userId: currentUser.userId,
-            username: currentUser.username,
-            email: currentUser.email,
-            status: currentUser.status,
-        })
-    }
-
-    if (url === "/identity-service/api/accounts/me" && method === "PATCH") {
-        const currentUser = requireAuth(db)
-        if (!currentUser) {
-            return fail(401, {message: "Нужна авторизация"})
-        }
-        const payload = parseBody(body)
-        const nextUsername = String(payload?.newUsername ?? "").trim()
-        if (!nextUsername) {
-            return fail(400, {message: "newUsername обязателен"})
-        }
-        currentUser.username = nextUsername
-        db.memberships.forEach((item) => {
-            if (item.userId === currentUser.userId) {
-                item.username = nextUsername
+            return {
+                agentId: `${task.taskId}-agent-${index}`,
+                displayIndex: index,
+                status,
+                currentIteration: iterations,
+                currentPhase: status === "FAILED" ? "FAILED" : "STEP",
             }
         })
-        writeDb(db)
-        return ok({
-            userId: currentUser.userId,
-            username: currentUser.username,
-            email: currentUser.email,
-            status: currentUser.status,
-        })
-    }
-
-    if (url === "/identity-service/api/accounts/me/passwords" && method === "PATCH") {
-        const currentUser = requireAuth(db)
-        if (!currentUser) {
-            return fail(401, {message: "Нужна авторизация"})
-        }
-        const payload = parseBody(body)
-        if (currentUser.password !== payload?.oldPassword) {
-            return fail(400, {message: "Текущий пароль неверный"})
-        }
-        currentUser.password = String(payload?.newPassword ?? "")
-        writeDb(db)
-        return ok({message: "password updated"})
-    }
-
-    if (url === "/identity-service/api/account-activations" && method === "POST") {
-        return ok({message: "activated", accountId: params?.accountId ?? null})
-    }
-
-    if (url === "/identity-service/api/password-resets" && method === "POST") {
-        const payload = parseBody(body)
-        db.passwordResetRequests.push({
-            id: createId("reset"),
-            email: String(payload?.email ?? "").trim(),
-            createdAt: nowIso(),
-        })
-        writeDb(db)
-        return ok({message: "reset requested"})
-    }
-
-    if (url === "/identity-service/api/password-resets" && method === "PUT") {
-        return ok({message: "password reset finished"})
-    }
-
-    return null
-}
-const handleProjectService = ({db, method, url, body, params}) => {
-    if (url === "/project-service/projects" && method === "GET") {
-        const currentUser = requireAuth(db)
-        if (!currentUser) {
-            return fail(401, {message: "Нужна авторизация"})
-        }
-        const memberProjectIds = new Set(
-            db.memberships
-                .filter((item) => item.userId === currentUser.userId)
-                .map((item) => item.projectId)
-        )
-        const records = db.projects
-            .filter((item) => memberProjectIds.has(item.projectId))
-            .map((item) => clone(item))
-        return ok(paginate(records, params?.page, params?.size))
-    }
-
-    if (url === "/project-service/projects" && method === "POST") {
-        const currentUser = requireAuth(db)
-        if (!currentUser) {
-            return fail(401, {message: "Нужна авторизация"})
-        }
-        const payload = parseBody(body)
-        const projectId = createId("project")
-        const createdAt = nowIso()
-        const project = {
-            projectId,
-            projectName: String(payload?.name ?? "").trim(),
-            projectDescription: String(payload?.description ?? "").trim(),
-            createdAt,
-            ownerId: currentUser.userId,
-        }
-        db.projects.push(project)
-        db.memberships.push({
-            projectId,
-            userId: currentUser.userId,
-            username: currentUser.username,
-            memberRole: "OWNER",
-            memberSince: createdAt,
-        })
-        writeDb(db)
-        return ok(clone(project))
-    }
-
-    const projectMatch = url.match(/^\/project-service\/projects\/([^/]+)$/) || url.match(/^\/projects\/([^/]+)$/)
-    if (projectMatch) {
-        const [, projectId] = projectMatch
-        const project = findProject(db, projectId)
-        if (!project) {
-            return fail(404, {message: "Проект не найден"})
-        }
-
-        if (method === "GET") {
-            return ok(clone(project))
-        }
-
-        if (method === "PATCH") {
-            const payload = parseBody(body)
-            project.projectName = String(payload?.name ?? project.projectName).trim()
-            project.projectDescription = String(
-                payload?.description ?? project.projectDescription ?? ""
-            ).trim()
-            writeDb(db)
-            return ok(clone(project))
-        }
-
-        if (method === "DELETE") {
-            db.projects = db.projects.filter((item) => item.projectId !== projectId)
-            db.memberships = db.memberships.filter((item) => item.projectId !== projectId)
-            db.configs = db.configs.filter((item) => item.projectId !== projectId)
-            db.artifacts = db.artifacts.filter((item) => item.projectId !== projectId)
-            db.inputs = db.inputs.filter((item) => item.projectId !== projectId)
-            db.tasks = db.tasks.filter((item) => item.projectId !== projectId)
-            db.outputs = db.outputs.filter((item) => item.projectId !== projectId)
-            db.microtasks = db.microtasks.filter((item) => item.projectId !== projectId)
-            writeDb(db)
-            return ok({message: "deleted"})
-        }
-    }
-
-    const membersMatch = url.match(/^\/project-service\/projects\/([^/]+)\/members$/)
-    if (membersMatch) {
-        const [, projectId] = membersMatch
-
-        if (method === "GET") {
-            const records = db.memberships
-                .filter((item) => item.projectId === projectId)
-                .map((item) => clone(item))
-
-            return ok(paginate(records, params?.page, params?.size))
-        }
-
-        if (method === "POST") {
-            const payload = parseBody(body)
-            const invitedUser = db.users.find(
-                (item) => item.username.toLowerCase() === String(payload?.username ?? "").toLowerCase()
-            )
-
-            if (!invitedUser) {
-                return fail(404, {message: "Пользователь не найден"})
-            }
-
-            const existingMembership = db.memberships.find(
-                (item) => item.projectId === projectId && item.userId === invitedUser.userId
-            )
-
-            if (existingMembership) {
-                return fail(409, {message: "Пользователь уже в проекте"})
-            }
-
-            const membership = {
-                projectId,
-                userId: invitedUser.userId,
-                username: invitedUser.username,
-                memberRole: payload?.memberRole ?? "USER",
-                memberSince: nowIso(),
-            }
-
-            db.memberships.push(membership)
-            writeDb(db)
-            return ok(clone(membership))
-        }
-    }
-
-    const memberMatch = url.match(/^\/project-service\/projects\/([^/]+)\/members\/([^/]+)$/)
-    if (memberMatch) {
-        const [, projectId, userId] = memberMatch
-        const membership = db.memberships.find(
-            (item) => item.projectId === projectId && item.userId === userId
-        )
-
-        if (!membership) {
-            return fail(404, {message: "Участник не найден"})
-        }
-
-        if (method === "PATCH") {
-            const payload = parseBody(body)
-            if (membership.memberRole !== "OWNER") {
-                membership.memberRole = payload?.memberRole ?? membership.memberRole
-            }
-            writeDb(db)
-            return ok(clone(membership))
-        }
-
-        if (method === "DELETE") {
-            if (membership.memberRole === "OWNER") {
-                return fail(400, {message: "Нельзя удалить владельца проекта"})
-            }
-
-            db.memberships = db.memberships.filter(
-                (item) => !(item.projectId === projectId && item.userId === userId)
-            )
-            writeDb(db)
-            return ok({message: "removed"})
-        }
-    }
-
-    return null
-}
-const getTaskRuntimeConfig = (db, task) => {
-    if (task?.launchSnapshot) {
-        return clone(task.launchSnapshot)
-    }
-
-    const config = findConfig(db, task?.configId)
-
-    if (config?.config) {
-        return clone(config.config)
-    }
-
-    return makeDefaultConfig()
-}
-
-const getMockAgentTotal = (config) => {
-    const rawTotal = Number(config?.swarm?.agentCount ?? 96)
-
-    if (!Number.isFinite(rawTotal) || rawTotal <= 0) {
-        return 96
-    }
-
-    return Math.min(rawTotal, 300)
-}
-
-const buildMockRuntimeState = ({db, projectId, taskId, type}) => {
-    const task = db.tasks.find(
-        (item) => item.projectId === projectId && item.taskId === taskId
-    )
-
-    if (!task) {
-        return fail(404, {message: "Запуск не найден"})
-    }
-
-    const config = getTaskRuntimeConfig(db, task)
-
-    if (type === "swarm") {
-        const total = getMockAgentTotal(config)
-        const iterations = Number(config?.swarm?.iterations ?? 18)
-
-        const agentStates = Array.from({length: total}, (_, index) => ({
-            agentId: `${taskId}-agent-${index}`,
-            displayIndex: index,
-            status:
-                index < Math.floor(total * 0.52) ? "SUCCEEDED" :
-                    index < Math.floor(total * 0.60) ? "FAILED" :
-                        index < Math.floor(total * 0.64) ? "TIME_OUT" :
-                            index < Math.floor(total * 0.80) ? "RUNNING" :
-                                "QUEUED",
-            currentIteration: iterations,
-            currentPhase: "COMPLETE",
-        }))
 
         const summary = {
             total,
@@ -738,105 +792,74 @@ const buildMockRuntimeState = ({db, projectId, taskId, type}) => {
             running: agentStates.filter((item) => item.status === "RUNNING").length,
             succeeded: agentStates.filter((item) => item.status === "SUCCEEDED").length,
             failed: agentStates.filter((item) => item.status === "FAILED").length,
-            timedOut: agentStates.filter((item) => item.status === "TIME_OUT").length,
+            timedOut: agentStates.filter((item) => item.status === "TIMED_OUT").length,
             tasksPerSec: 0.07,
             currentIteration: iterations,
-            currentPhase: "COMPLETE",
+            currentPhase: "STEP",
         }
 
-        return ok({taskId, seq: 0, kind: "snapshot", status: task.status,
-            summary, config, agentStates})
+        return {
+            taskId: task.taskId,
+            seq: 0,
+            kind: "snapshot",
+            taskStatus: normalizeTaskStatus(task.taskStatus ?? task.status),
+            summary,
+            agentStates,
+        }
     }
 
     const microtasks = db.microtasks
-        .filter((item) => item.taskId === taskId)
+        .filter((item) => item.taskId === task.taskId)
         .map((item) => ({
             microtaskId: item.microtaskId,
             displayIndex: item.displayIndex,
-            status: item.status,
+            status: normalizeEntityStatus(item.status),
         }))
 
     const summary = {
         total: microtasks.length,
-        queued: microtasks.filter((item) => ["CREATED", "QUEUED", "STARTING"].includes(item.status)).length,
+        queued: microtasks.filter((item) =>
+            ["QUEUED", "STARTING"].includes(item.status)
+        ).length,
         running: microtasks.filter((item) => item.status === "RUNNING").length,
         succeeded: microtasks.filter((item) => item.status === "SUCCEEDED").length,
         failed: microtasks.filter((item) => item.status === "FAILED").length,
-        timedOut: microtasks.filter((item) => item.status === "TIME_OUT" || item.status === "TIMED_OUT").length,
+        timedOut: microtasks.filter((item) => item.status === "TIMED_OUT").length,
         tasksPerSec: 0.08,
     }
 
-    return ok({
-        taskId,
+    return {
+        taskId: task.taskId,
         seq: 0,
         kind: "snapshot",
-        status: task.status,
+        taskStatus: normalizeTaskStatus(task.taskStatus ?? task.status),
         summary,
-        config,
         microtasks,
-    })
+    }
 }
 
-const buildMockRuntimeMicrotask = ({db, projectId, taskId, microtaskId, type}) => {
-    const task = db.tasks.find(
-        (item) => item.projectId === projectId && item.taskId === taskId
-    )
+const buildLegacyTaskStatePayload = (db, task, executionType) => {
+    const payload = buildTaskStatsPayload(db, task, executionType)
 
-    if (!task) {
-        return fail(404, {message: "Запуск не найден"})
+    return {
+        ...payload,
+        status: payload.taskStatus,
     }
-
-    if (type === "swarm") {
-        return ok({
-            taskId,
-            microtaskId,
-            displayIndex: Number(String(microtaskId).split("-").at(-1)) || 0,
-            status: "SUCCEEDED",
-            createdAt: task.createdAt,
-            startedAt: task.startedAt ?? task.createdAt,
-            finishedAt: nowIso(),
-            runDeadline: nowIso(),
-            runTimeoutSeconds: 3600,
-            reason: "",
-            agentId: `${taskId}-agent-0`,
-            phase: "FINISH",
-            iteration: 2,
-        })
-    }
-
-    const microtask = db.microtasks.find(
-        (item) => item.taskId === taskId && item.microtaskId === microtaskId
-    )
-
-    if (!microtask) {
-        return fail(404, {message: "Микрозадача не найдена"})
-    }
-
-    return ok({
-        taskId,
-        microtaskId,
-        displayIndex: microtask.displayIndex,
-        status: microtask.status,
-        createdAt: task.createdAt,
-        startedAt: microtask.startedAt ?? microtask.started_at ?? null,
-        finishedAt: microtask.finishedAt ?? microtask.finished_at ?? null,
-        runDeadline: nowIso(),
-        runTimeoutSeconds: 60,
-        reason: "",
-    })
 }
 
-const buildMockSwarmAgent = ({db, projectId, taskId, agentId}) => {
-    const task = db.tasks.find(
-        (item) => item.projectId === projectId && item.taskId === taskId
-    )
+const buildAgentPayload = (db, projectId, taskId, agentId) => {
+    const task = findTask(db, projectId, taskId)
 
     if (!task) {
-        return fail(404, {message: "Запуск не найден"})
+        return failCode(404, "agentNotFound", "Агент не найден")
     }
 
-    const config = getTaskRuntimeConfig(db, task)
+    if (normalizeExecutionType(task.executionType) !== "swarm-sync") {
+        return failCode(404, "agentNotFound", "Агент не найден")
+    }
+
     const agentIndex = Number(String(agentId).split("-").at(-1)) || 0
+    const config = task.launchSnapshot ?? makeDefaultSwarmConfig()
 
     return ok({
         agentId,
@@ -850,19 +873,510 @@ const buildMockSwarmAgent = ({db, projectId, taskId, agentId}) => {
             seed: agentIndex,
         }),
         stateData: JSON.stringify({
-            phase: "COMPLETE",
+            phase: "STEP",
             iteration: Number(config?.swarm?.iterations ?? 18),
             localBest: 84.83,
             topology: config?.swarm?.topology?.type ?? "ring",
         }),
-        statePhase: "COMPLETE",
+        statePhase: "STEP",
         stateIteration: Number(config?.swarm?.iterations ?? 18),
     })
 }
-const handleArtifactService = ({db, method, url, body, params}) => {
-    const configsMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/executionConfigs$/)
+
+const makeBlob = (content, contentType = "application/octet-stream") =>
+    new Blob([content ?? ""], {
+        type: contentType,
+    })
+
+const handleIdentityService = async ({ db, method, url, body, params }) => {
+    if (url === "/identity-service/api/accounts" && method === "POST") {
+        const payload = parseBody(body)
+
+        const existingUser = db.users.find(
+            (item) =>
+                item.email.toLowerCase() ===
+                String(payload?.email ?? "").toLowerCase()
+        )
+
+        if (existingUser) {
+            return fail(409, {
+                message: "Пользователь с таким email уже существует",
+            })
+        }
+
+        const newUser = {
+            userId: createId("user"),
+            username: String(payload?.username ?? "").trim(),
+            email: String(payload?.email ?? "").trim(),
+            password: String(payload?.password ?? ""),
+            status: "ACTIVE",
+        }
+
+        db.users.push(newUser)
+        writeDb(db)
+
+        return ok({
+            userId: newUser.userId,
+            username: newUser.username,
+            email: newUser.email,
+            status: newUser.status,
+        })
+    }
+
+    if (url === "/identity-service/api/sessions" && method === "POST") {
+        const payload = parseBody(body)
+
+        const user = db.users.find(
+            (item) =>
+                item.email.toLowerCase() ===
+                String(payload?.email ?? "").toLowerCase()
+        )
+
+        if (!user || user.password !== payload?.password) {
+            return fail(401, {
+                message: "Неверный email или пароль",
+            })
+        }
+
+        setSession({
+            userId: user.userId,
+        })
+
+        return ok({
+            accessJWT: createAccessJwt(user.userId),
+        })
+    }
+
+    if (url === "/identity-service/api/sessions/refresh" && method === "POST") {
+        const session = getSession()
+
+        if (!session?.userId) {
+            return fail(401, {
+                message: "Сессия не найдена",
+            })
+        }
+
+        return ok({
+            accessJWT: createAccessJwt(session.userId),
+        })
+    }
+
+    if (url === "/identity-service/api/sessions/me" && method === "DELETE") {
+        setSession(null)
+        return ok({
+            message: "logged out",
+        })
+    }
+
+    if (url === "/identity-service/api/accounts/me" && method === "GET") {
+        const currentUser = requireAuth(db)
+
+        if (!currentUser) {
+            return fail(401, {
+                message: "Нужна авторизация",
+            })
+        }
+
+        return ok({
+            userId: currentUser.userId,
+            username: currentUser.username,
+            email: currentUser.email,
+            status: currentUser.status,
+        })
+    }
+
+    if (url === "/identity-service/api/accounts/me" && method === "PATCH") {
+        const currentUser = requireAuth(db)
+
+        if (!currentUser) {
+            return fail(401, {
+                message: "Нужна авторизация",
+            })
+        }
+
+        const payload = parseBody(body)
+        const nextUsername = String(payload?.newUsername ?? "").trim()
+
+        if (!nextUsername) {
+            return fail(400, {
+                message: "newUsername обязателен",
+            })
+        }
+
+        currentUser.username = nextUsername
+
+        db.memberships.forEach((item) => {
+            if (item.userId === currentUser.userId) {
+                item.username = nextUsername
+            }
+        })
+
+        writeDb(db)
+
+        return ok({
+            userId: currentUser.userId,
+            username: currentUser.username,
+            email: currentUser.email,
+            status: currentUser.status,
+        })
+    }
+
+    if (url === "/identity-service/api/accounts/me/passwords" && method === "PATCH") {
+        const currentUser = requireAuth(db)
+
+        if (!currentUser) {
+            return fail(401, {
+                message: "Нужна авторизация",
+            })
+        }
+
+        const payload = parseBody(body)
+
+        if (currentUser.password !== payload?.oldPassword) {
+            return fail(400, {
+                message: "Текущий пароль неверный",
+            })
+        }
+
+        currentUser.password = String(payload?.newPassword ?? "")
+        writeDb(db)
+
+        return ok({
+            message: "password updated",
+        })
+    }
+
+    if (url === "/identity-service/api/account-activations" && method === "POST") {
+        return ok({
+            message: "activated",
+            accountId: params?.accountId ?? null,
+        })
+    }
+
+    if (url === "/identity-service/api/password-resets" && method === "POST") {
+        const payload = parseBody(body)
+
+        db.passwordResetRequests.push({
+            id: createId("reset"),
+            email: String(payload?.email ?? "").trim(),
+            createdAt: nowIso(),
+        })
+
+        writeDb(db)
+
+        return ok({
+            message: "reset requested",
+        })
+    }
+
+    if (url === "/identity-service/api/password-resets" && method === "PUT") {
+        return ok({
+            message: "password reset finished",
+        })
+    }
+
+    return null
+}
+
+const handleProjectService = async ({ db, method, url, body, params }) => {
+    if (url === "/project-service/projects" && method === "GET") {
+        const currentUser = requireAuth(db)
+
+        if (!currentUser) {
+            return fail(401, {
+                message: "Нужна авторизация",
+            })
+        }
+
+        const memberProjectIds = new Set(
+            db.memberships
+                .filter((item) => item.userId === currentUser.userId)
+                .map((item) => item.projectId)
+        )
+
+        const records = db.projects
+            .filter((item) => memberProjectIds.has(item.projectId))
+            .map((item) => clone(item))
+
+        return ok(paginate(records, params?.page, params?.size))
+    }
+
+    if (url === "/project-service/projects" && method === "POST") {
+        const currentUser = requireAuth(db)
+
+        if (!currentUser) {
+            return fail(401, {
+                message: "Нужна авторизация",
+            })
+        }
+
+        const payload = parseBody(body)
+        const projectId = createId("project")
+        const createdAt = nowIso()
+
+        const project = {
+            projectId,
+            projectName: String(payload?.name ?? "").trim(),
+            projectDescription: String(payload?.description ?? "").trim(),
+            createdAt,
+            ownerId: currentUser.userId,
+        }
+
+        db.projects.push(project)
+        db.memberships.push({
+            projectId,
+            userId: currentUser.userId,
+            username: currentUser.username,
+            memberRole: "OWNER",
+            memberSince: createdAt,
+        })
+
+        writeDb(db)
+
+        return ok(clone(project))
+    }
+
+    const projectMatch =
+        url.match(/^\/project-service\/projects\/([^/]+)$/) ||
+        url.match(/^\/projects\/([^/]+)$/)
+
+    if (projectMatch) {
+        const [, projectId] = projectMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        if (method === "GET") {
+            return ok(clone(access.project))
+        }
+
+        if (method === "PATCH") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
+            const payload = parseBody(body)
+
+            access.project.projectName = String(
+                payload?.name ?? access.project.projectName
+            ).trim()
+
+            access.project.projectDescription = String(
+                payload?.description ?? access.project.projectDescription ?? ""
+            ).trim()
+
+            writeDb(db)
+
+            return ok(clone(access.project))
+        }
+
+        if (method === "DELETE") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
+            db.projects = db.projects.filter((item) => item.projectId !== projectId)
+            db.memberships = db.memberships.filter((item) => item.projectId !== projectId)
+            db.configs = db.configs.filter((item) => item.projectId !== projectId)
+            db.artifacts = db.artifacts.filter((item) => item.projectId !== projectId)
+            db.inputs = db.inputs.filter((item) => item.projectId !== projectId)
+            db.tasks = db.tasks.filter((item) => item.projectId !== projectId)
+            db.outputs = db.outputs.filter((item) => item.projectId !== projectId)
+            db.microtasks = db.microtasks.filter((item) => item.projectId !== projectId)
+
+            writeDb(db)
+
+            return ok({
+                message: "deleted",
+            })
+        }
+    }
+
+    const membersMatch = url.match(/^\/project-service\/projects\/([^/]+)\/members$/)
+
+    if (membersMatch) {
+        const [, projectId] = membersMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        if (method === "GET") {
+            const records = db.memberships
+                .filter((item) => item.projectId === projectId)
+                .map((item) => clone(item))
+
+            return ok(paginate(records, params?.page, params?.size))
+        }
+
+        if (method === "POST") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
+            const payload = parseBody(body)
+
+            const invitedUser = db.users.find(
+                (item) =>
+                    item.username.toLowerCase() ===
+                    String(payload?.username ?? "").toLowerCase()
+            )
+
+            if (!invitedUser) {
+                return fail(404, {
+                    message: "Пользователь не найден",
+                })
+            }
+
+            const existingMembership = db.memberships.find(
+                (item) =>
+                    item.projectId === projectId &&
+                    item.userId === invitedUser.userId
+            )
+
+            if (existingMembership) {
+                return fail(409, {
+                    message: "Пользователь уже в проекте",
+                })
+            }
+
+            const membership = {
+                projectId,
+                userId: invitedUser.userId,
+                username: invitedUser.username,
+                memberRole: payload?.memberRole ?? "USER",
+                memberSince: nowIso(),
+            }
+
+            db.memberships.push(membership)
+            writeDb(db)
+
+            return ok(clone(membership))
+        }
+    }
+
+    const memberMatch = url.match(
+        /^\/project-service\/projects\/([^/]+)\/members\/([^/]+)$/
+    )
+
+    if (memberMatch) {
+        const [, projectId, userId] = memberMatch
+        const managerAccess = requireProjectManager(db, projectId)
+
+        if (managerAccess.error) {
+            return managerAccess.error
+        }
+
+        const membership = db.memberships.find(
+            (item) => item.projectId === projectId && item.userId === userId
+        )
+
+        if (!membership) {
+            return fail(404, {
+                message: "Участник не найден",
+            })
+        }
+
+        if (method === "PATCH") {
+            const payload = parseBody(body)
+
+            if (membership.memberRole !== "OWNER") {
+                membership.memberRole = payload?.memberRole ?? membership.memberRole
+            }
+
+            writeDb(db)
+
+            return ok(clone(membership))
+        }
+
+        if (method === "DELETE") {
+            if (membership.memberRole === "OWNER") {
+                return fail(400, {
+                    message: "Нельзя удалить владельца проекта",
+                })
+            }
+
+            db.memberships = db.memberships.filter(
+                (item) => !(item.projectId === projectId && item.userId === userId)
+            )
+
+            writeDb(db)
+
+            return ok({
+                message: "removed",
+            })
+        }
+    }
+
+    return null
+}
+
+const handleArtifactService = async ({ db, method, url, body, params }) => {
+    const logsMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/logs\/([^/]+)$/
+    )
+
+    if (logsMatch && method === "GET") {
+        const [, projectId, microtaskId] = logsMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const microtask = db.microtasks.find(
+            (item) => item.projectId === projectId && item.microtaskId === microtaskId
+        )
+
+        if (!microtask) {
+            return failCode(404, "microtaskNotFound", "Микротаска не найдена")
+        }
+
+        if (!db.microtaskLogs[microtaskId]) {
+            db.microtaskLogs[microtaskId] = makeLogRecords(
+                microtaskId,
+                microtask.status
+            )
+            writeDb(db)
+        }
+
+        const afterSeq = Number(params?.afterSeq ?? -1)
+        const limitRaw = params?.limit
+        const limit = limitRaw === undefined || limitRaw === null
+            ? Infinity
+            : Math.max(0, Number(limitRaw) || 0)
+
+        const logs = [...(db.microtaskLogs[microtaskId] ?? [])]
+            .filter((item) => Number(item.seq) > afterSeq)
+            .sort((a, b) => Number(a.seq) - Number(b.seq))
+            .slice(0, limit)
+
+        return ok({
+            microtaskId,
+            logs,
+        })
+    }
+
+    const configsMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/executionConfigs$/
+    )
+
     if (configsMatch) {
         const [, projectId] = configsMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
 
         if (method === "GET") {
             const records = db.configs
@@ -878,36 +1392,52 @@ const handleArtifactService = ({db, method, url, body, params}) => {
         }
 
         if (method === "POST") {
-            const currentUser = requireAuth(db)
-            if (!currentUser) {
-                return fail(401, {message: "Нужна авторизация"})
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
             }
 
             const payload = parseBody(body)
+            const normalizedConfig = payload?.config ?? makeDefaultConfig()
+
             const record = {
                 configId: createId("config"),
                 alias: String(payload?.alias ?? "").trim(),
                 projectId,
-                ownerId: currentUser.userId,
+                ownerId: access.currentUser.userId,
                 createdAt: nowIso(),
-                config: payload?.config ?? makeDefaultConfig(),
+                config: {
+                    ...normalizedConfig,
+                    type: normalizeExecutionType(normalizedConfig?.type),
+                },
             }
 
             db.configs.push(record)
             writeDb(db)
+
             return ok(clone(record))
         }
     }
 
-    const configMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/executionConfigs\/([^/]+)$/)
+    const configMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/executionConfigs\/([^/]+)$/
+    )
+
     if (configMatch) {
         const [, projectId, configId] = configMatch
-        const record = db.configs.find(
-            (item) => item.projectId === projectId && item.configId === configId
-        )
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const record = findConfig(db, projectId, configId)
 
         if (!record) {
-            return fail(404, {message: "Конфигурация не найдена"})
+            return fail(404, {
+                message: "Конфигурация не найдена",
+            })
         }
 
         if (method === "GET") {
@@ -915,309 +1445,463 @@ const handleArtifactService = ({db, method, url, body, params}) => {
         }
 
         if (method === "PATCH") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
             const payload = parseBody(body)
+            const nextConfig = payload?.config ?? record.config
+
             record.alias = String(payload?.alias ?? record.alias).trim()
-            record.config = payload?.config ?? record.config
+            record.config = {
+                ...nextConfig,
+                type: normalizeExecutionType(nextConfig?.type),
+            }
+
             writeDb(db)
+
             return ok(clone(record))
         }
 
         if (method === "DELETE") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
             db.configs = db.configs.filter((item) => item.configId !== configId)
             writeDb(db)
-            return ok({message: "deleted"})
+
+            return ok({
+                message: "deleted",
+            })
         }
     }
 
-    const artifactsMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/artifacts$/)
+    const artifactsMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/artifacts$/
+    )
+
     if (artifactsMatch) {
         const [, projectId] = artifactsMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
 
         if (method === "GET") {
             const records = db.artifacts
                 .filter((item) => item.projectId === projectId)
-                .map((item) => clone({
-                    alias: item.alias,
-                    artifact: item.artifact,
-                }))
+                .map((item) =>
+                    clone({
+                        alias: item.alias,
+                        artifact: item.artifact,
+                    })
+                )
 
             return ok(paginate(records, params?.page, params?.size))
         }
 
         if (method === "POST") {
-            const currentUser = requireAuth(db)
-            if (!currentUser) {
-                return fail(401, {message: "Нужна авторизация"})
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
             }
 
             const payload = parseBody(body)
             const file = payload?.file
-            const content = `mock content for ${file?.name ?? "artifact.jar"}`
+            const alias = String(payload?.alias ?? file?.name ?? "").trim()
+            const content = await readFileContent(
+                file,
+                `mock content for ${file?.name ?? "artifact.jar"}`
+            )
+
             const artifactId = createId("artifact")
+
             const record = {
                 projectId,
-                alias: String(payload?.alias ?? "").trim(),
+                alias,
                 artifact: makeArtifactMeta({
                     artifactId,
-                    originalName: file?.name ?? "artifact.jar",
-                    size: file?.size ?? content.length,
+                    originalName: file?.name ?? `${alias || artifactId}.jar`,
+                    size: Number(file?.size ?? content.length),
                     contentType: file?.type || "application/java-archive",
                     createdAt: nowIso(),
-                    ownerId: currentUser.userId,
+                    ownerId: access.currentUser.userId,
                 }),
                 content,
             }
 
             db.artifacts.push(record)
             writeDb(db)
-            return ok(clone({alias: record.alias, artifact: record.artifact}))
+
+            return ok(clone(record))
         }
     }
 
-    const artifactMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/artifacts\/([^/]+)$/)
-    if (artifactMatch) {
-        const [, projectId, artifactId] = artifactMatch
-        const record = db.artifacts.find(
-            (item) => item.projectId === projectId && item.artifact.artifactId === artifactId
-        )
+    const artifactContentMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/artifacts\/([^/]+)\/content$/
+    )
 
-        if (!record) {
-            return fail(404, {message: "Артефакт не найден"})
-        }
-
-        if (method === "GET") {
-            return ok(clone({alias: record.alias, artifact: record.artifact}))
-        }
-
-        if (method === "PATCH") {
-            const payload = parseBody(body)
-            record.alias = typeof payload === "string" ? payload : String(payload?.alias ?? record.alias).trim()
-            writeDb(db)
-            return ok(clone({alias: record.alias, artifact: record.artifact}))
-        }
-
-        if (method === "DELETE") {
-            db.artifacts = db.artifacts.filter((item) => item.artifact.artifactId !== artifactId)
-            writeDb(db)
-            return ok({message: "deleted"})
-        }
-    }
-
-    const artifactContentMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/artifacts\/([^/]+)\/content$/)
     if (artifactContentMatch) {
         const [, projectId, artifactId] = artifactContentMatch
-        const record = db.artifacts.find(
-            (item) => item.projectId === projectId && item.artifact.artifactId === artifactId
-        )
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const record = findArtifact(db, projectId, artifactId)
 
         if (!record) {
-            return fail(404, {message: "Артефакт не найден"})
+            return fail(404, {
+                message: "Артефакт не найден",
+            })
         }
 
         if (method === "GET") {
-            return ok(new Blob([record.content ?? ""], {type: record.artifact.contentType || "application/octet-stream"}))
+            return ok(makeBlob(record.content, record.artifact?.contentType))
         }
 
         if (method === "PUT") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
             const payload = parseBody(body)
             const file = payload?.file
-            record.content = `mock content for ${file?.name ?? record.artifact.originalName}`
-            record.artifact.originalName = file?.name ?? record.artifact.originalName
-            record.artifact.size = file?.size ?? record.content.length
-            record.artifact.contentType = file?.type || record.artifact.contentType
+            const content = await readFileContent(
+                file,
+                `mock content for ${file?.name ?? record.artifact?.originalName ?? "artifact.jar"}`
+            )
+
+            record.content = content
+            record.artifact = {
+                ...record.artifact,
+                originalName: file?.name ?? record.artifact?.originalName,
+                size: Number(file?.size ?? content.length),
+                contentType: file?.type || record.artifact?.contentType,
+                createdAt: nowIso(),
+            }
+
             writeDb(db)
-            return ok(clone({alias: record.alias, artifact: record.artifact}))
+
+            return ok(clone(record))
         }
     }
 
-    const inputsMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/inputs$/)
+    const artifactMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/artifacts\/([^/]+)$/
+    )
+
+    if (artifactMatch) {
+        const [, projectId, artifactId] = artifactMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const record = findArtifact(db, projectId, artifactId)
+
+        if (!record) {
+            return fail(404, {
+                message: "Артефакт не найден",
+            })
+        }
+
+        if (method === "GET") {
+            return ok(
+                clone({
+                    alias: record.alias,
+                    artifact: record.artifact,
+                })
+            )
+        }
+
+        if (method === "PATCH") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
+            const payload = parseBody(body)
+
+            if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+                return fail(400, {
+                    message: "Ожидался body вида { alias: string }",
+                })
+            }
+
+            const nextAlias = String(payload?.alias ?? "").trim()
+
+            if (!nextAlias) {
+                return fail(400, {
+                    message: "alias обязателен",
+                })
+            }
+
+            record.alias = nextAlias
+            writeDb(db)
+
+            return ok(
+                clone({
+                    alias: record.alias,
+                    artifact: record.artifact,
+                })
+            )
+        }
+
+        if (method === "DELETE") {
+            const managerAccess = requireProjectManager(db, projectId)
+
+            if (managerAccess.error) {
+                return managerAccess.error
+            }
+
+            db.artifacts = db.artifacts.filter(
+                (item) =>
+                    !(
+                        item.projectId === projectId &&
+                        item.artifact?.artifactId === artifactId
+                    )
+            )
+
+            writeDb(db)
+
+            return ok({
+                message: "deleted",
+            })
+        }
+    }
+
+    const inputsMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/inputs$/
+    )
+
     if (inputsMatch) {
         const [, projectId] = inputsMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
 
         if (method === "GET") {
             const records = db.inputs
                 .filter((item) => item.projectId === projectId)
-                .map((item) => clone({
-                    alias: item.alias,
-                    inputType: item.inputType,
-                    artifact: item.artifact,
-                }))
+                .map((item) =>
+                    clone({
+                        alias: item.alias,
+                        inputType: item.inputType,
+                        artifact: item.artifact,
+                    })
+                )
 
             return ok(paginate(records, params?.page, params?.size))
         }
 
         if (method === "POST") {
-            const currentUser = requireAuth(db)
-            if (!currentUser) {
-                return fail(401, {message: "Нужна авторизация"})
-            }
-
             const payload = parseBody(body)
             const file = payload?.file
-            const content = `{"mock":true,"name":"${file?.name ?? "input.jsonl"}"}`
+            const alias = String(payload?.alias ?? file?.name ?? "").trim()
+            const inputType = String(payload?.inputType ?? "JSONL").toUpperCase()
+            const content = await readFileContent(
+                file,
+                `mock content for ${file?.name ?? "input.jsonl"}`
+            )
+
             const artifactId = createId("input")
+
             const record = {
                 projectId,
-                alias: String(payload?.alias ?? "").trim(),
-                inputType: payload?.inputType ?? "JSONL",
+                alias,
+                inputType,
                 artifact: makeArtifactMeta({
                     artifactId,
-                    originalName: file?.name ?? "input.jsonl",
-                    size: file?.size ?? content.length,
+                    originalName: file?.name ?? `${alias || artifactId}.jsonl`,
+                    size: Number(file?.size ?? content.length),
                     contentType: file?.type || "application/x-ndjson",
                     createdAt: nowIso(),
-                    ownerId: currentUser.userId,
+                    ownerId: access.currentUser.userId,
                 }),
                 content,
             }
 
             db.inputs.push(record)
             writeDb(db)
-            return ok(clone({
-                alias: record.alias,
-                inputType: record.inputType,
-                artifact: record.artifact,
-            }))
+
+            return ok(clone(record))
         }
     }
 
-    const inputMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/inputs\/([^/]+)$/)
-    if (inputMatch) {
-        const [, projectId, artifactId] = inputMatch
-        const record = db.inputs.find(
-            (item) => item.projectId === projectId && item.artifact.artifactId === artifactId
-        )
+    const inputContentMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/inputs\/([^/]+)\/content$/
+    )
 
-        if (!record) {
-            return fail(404, {message: "Input не найден"})
-        }
-
-        if (method === "GET") {
-            return ok(clone({
-                alias: record.alias,
-                inputType: record.inputType,
-                artifact: record.artifact,
-            }))
-        }
-
-        if (method === "PATCH") {
-            const payload = parseBody(body)
-            record.alias = String(payload?.alias ?? record.alias).trim()
-            record.inputType = payload?.inputType ?? record.inputType
-            writeDb(db)
-            return ok(clone({
-                alias: record.alias,
-                inputType: record.inputType,
-                artifact: record.artifact,
-            }))
-        }
-
-        if (method === "DELETE") {
-            db.inputs = db.inputs.filter((item) => item.artifact.artifactId !== artifactId)
-            writeDb(db)
-            return ok({message: "deleted"})
-        }
-    }
-
-    const inputContentMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/inputs\/([^/]+)\/content$/)
     if (inputContentMatch) {
         const [, projectId, artifactId] = inputContentMatch
-        const record = db.inputs.find(
-            (item) => item.projectId === projectId && item.artifact.artifactId === artifactId
-        )
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const record = findInput(db, projectId, artifactId)
 
         if (!record) {
-            return fail(404, {message: "Input не найден"})
+            return fail(404, {
+                message: "Input не найден",
+            })
         }
 
         if (method === "GET") {
-            return ok(new Blob([record.content ?? ""], {type: record.artifact.contentType || "application/octet-stream"}))
+            return ok(makeBlob(record.content, record.artifact?.contentType))
         }
 
         if (method === "PUT") {
             const payload = parseBody(body)
             const file = payload?.file
-            record.content = `{"mock":true,"name":"${file?.name ?? record.artifact.originalName}"}`
-            record.artifact.originalName = file?.name ?? record.artifact.originalName
-            record.artifact.size = file?.size ?? record.content.length
-            record.artifact.contentType = file?.type || record.artifact.contentType
+            const content = await readFileContent(
+                file,
+                `mock content for ${file?.name ?? record.artifact?.originalName ?? "input.jsonl"}`
+            )
+
+            record.content = content
+            record.artifact = {
+                ...record.artifact,
+                originalName: file?.name ?? record.artifact?.originalName,
+                size: Number(file?.size ?? content.length),
+                contentType: file?.type || record.artifact?.contentType,
+                createdAt: nowIso(),
+            }
+
             writeDb(db)
-            return ok(clone({
-                alias: record.alias,
-                inputType: record.inputType,
-                artifact: record.artifact,
-            }))
+
+            return ok(clone(record))
         }
     }
 
-    const runtimeStateMatch = url.match(
-        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/(stateless|swarm)\/([^/]+)\/state$/
+    const inputMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/inputs\/([^/]+)$/
     )
 
-    if (runtimeStateMatch) {
-        const [, projectId, type, taskId] = runtimeStateMatch
+    if (inputMatch) {
+        const [, projectId, artifactId] = inputMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const record = findInput(db, projectId, artifactId)
+
+        if (!record) {
+            return fail(404, {
+                message: "Input не найден",
+            })
+        }
 
         if (method === "GET") {
-            return buildMockRuntimeState({db, projectId, taskId, type})
+            return ok(
+                clone({
+                    alias: record.alias,
+                    inputType: record.inputType,
+                    artifact: record.artifact,
+                })
+            )
+        }
+
+        if (method === "PATCH") {
+            const payload = parseBody(body)
+
+            record.alias = String(payload?.alias ?? record.alias).trim()
+            record.inputType = String(payload?.inputType ?? record.inputType).toUpperCase()
+
+            writeDb(db)
+
+            return ok(
+                clone({
+                    alias: record.alias,
+                    inputType: record.inputType,
+                    artifact: record.artifact,
+                })
+            )
+        }
+
+        if (method === "DELETE") {
+            db.inputs = db.inputs.filter(
+                (item) =>
+                    !(
+                        item.projectId === projectId &&
+                        item.artifact?.artifactId === artifactId
+                    )
+            )
+
+            writeDb(db)
+
+            return ok({
+                message: "deleted",
+            })
         }
     }
 
-    const runtimeMicrotaskMatch = url.match(
-        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/(stateless|swarm)\/([^/]+)\/microtasks\/([^/]+)$/
+    const tasksMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks$/
     )
 
-    if (runtimeMicrotaskMatch) {
-        const [, projectId, type, taskId, microtaskId] = runtimeMicrotaskMatch
-
-        if (method === "GET") {
-            return buildMockRuntimeMicrotask({db, projectId, taskId, microtaskId, type})
-        }
-    }
-
-    const swarmAgentMatch = url.match(
-        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/swarm\/([^/]+)\/agents\/([^/]+)$/
-    )
-
-    if (swarmAgentMatch) {
-        const [, projectId, taskId, agentId] = swarmAgentMatch
-
-        if (method === "GET") {
-            return buildMockSwarmAgent({db, projectId, taskId, agentId})
-        }
-    }
-
-    const tasksMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/tasks$/)
     if (tasksMatch) {
         const [, projectId] = tasksMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
 
         if (method === "GET") {
             const records = db.tasks
                 .filter((item) => item.projectId === projectId)
-                .map((item) => clone(buildTaskSummaryRecord(item)))
+                .map(buildTaskSummaryRecord)
 
             return ok(paginate(records, params?.page, params?.size))
         }
 
         if (method === "POST") {
-            const currentUser = requireAuth(db)
-            if (!currentUser) {
-                return fail(401, {message: "Нужна авторизация"})
-            }
-
             const payload = parseBody(body)
-            const jar = findArtifact(db, payload?.jarId)
-            const input = findInput(db, payload?.inputId)
-            const config = findConfig(db, payload?.configId)
 
-            const taskType = payload?.type ?? config?.config?.type ?? "stateless"
-            const launchSnapshot = {
-                ...clone(config.config),
-                type: taskType,
+            const config = findConfig(db, projectId, payload?.configId)
+            const artifact = findArtifact(db, projectId, payload?.jarId)
+            const input = findInput(db, projectId, payload?.inputId)
+
+            if (!config) {
+                return fail(404, {
+                    message: "Конфигурация не найдена",
+                })
             }
 
-            if (!jar || !input || !config) {
-                return fail(400, {message: "Некорректные jarId / inputId / configId"})
+            if (!artifact) {
+                return fail(404, {
+                    message: "JAR артефакт не найден",
+                })
             }
+
+            if (!input) {
+                return fail(404, {
+                    message: "Input не найден",
+                })
+            }
+
+            const executionType = normalizeExecutionType(
+                payload?.executionType ?? payload?.type ?? config?.config?.type
+            )
 
             const taskId = createId("task")
             const createdAt = nowIso()
@@ -1225,146 +1909,355 @@ const handleArtifactService = ({db, method, url, body, params}) => {
             const task = {
                 taskId,
                 projectId,
-                launchedByUser: currentUser.userId,
-                status: "RUNNING",
-                type: taskType,
-                jarId: jar.artifact.artifactId,
-                jarAlias: jar.alias,
+                launchedByUser: access.currentUser.userId,
+                status: "CREATED",
+                taskStatus: "CREATED",
+                executionType,
+                jarId: artifact.artifact.artifactId,
+                jarAlias: artifact.alias,
                 inputId: input.artifact.artifactId,
                 inputAlias: input.alias,
                 configId: config.configId,
                 configAlias: config.alias,
                 createdAt,
-                startedAt: createdAt,
+                startedAt: null,
                 finishedAt: null,
                 doneAt: null,
-                launchSnapshot,
+                launchSnapshot: clone(config.config),
             }
-            db.tasks.unshift(task)
 
-            for (let i = 0; i < 40; ++i) {
-                db.microtasks.push({
-                    microtaskId: `${taskId}-microtask-${i}`,
-                    taskId,
-                    projectId,
-                    displayIndex: i,
-                    status: i < 3 ? "SUCCEEDED" : i === 3 ? "RUNNING" : "CREATED",
-                    started_at: i <= 3 ? createdAt : null,
-                    finished_at: i < 3 ? createdAt : null,
+            db.tasks.push(task)
+
+            if (executionType === "stateless") {
+                const total = 40
+
+                const newMicrotasks = Array.from({ length: total }, (_, index) => {
+                    const microtaskId = `${taskId}-microtask-${index}`
+
+                    return {
+                        microtaskId,
+                        taskId,
+                        projectId,
+                        displayIndex: index,
+                        status: index === 0 ? "RUNNING" : "QUEUED",
+                        createdAt,
+                        startedAt: index === 0 ? createdAt : null,
+                        finishedAt: null,
+                        runDeadline: nowIso(),
+                        runTimeoutSeconds: 60,
+                        reason: "",
+                    }
+                })
+
+                db.microtasks.push(...newMicrotasks)
+
+                newMicrotasks.forEach((microtask) => {
+                    db.microtaskLogs[microtask.microtaskId] = makeLogRecords(
+                        microtask.microtaskId,
+                        microtask.status
+                    )
                 })
             }
+
             writeDb(db)
-            return ok(clone(buildTaskSummaryRecord(task)))
+
+            return ok(buildTaskSummaryRecord(task))
         }
     }
 
-    const taskMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)$/)
-    if (taskMatch) {
-        const [, projectId, taskId] = taskMatch
-        const task = db.tasks.find((item) => item.projectId === projectId && item.taskId === taskId)
+    const taskOutputsMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/outputs$/
+    )
 
-        if (!task) {
-            return fail(404, {message: "Запуск не найден"})
-        }
-
-        if (method === "GET") {
-            return ok(clone({
-                ...buildTaskSummaryRecord(task),
-                launchSnapshot: task.launchSnapshot ?? null,
-            }))
-        }
-
-        if (method === "PATCH") {
-            task.status = "CANCELED"
-            task.finishedAt = nowIso()
-            task.doneAt = task.finishedAt
-            writeDb(db)
-            return ok({message: "canceled"})
-        }
-    }
-
-    const taskOutputsMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/outputs$/)
-    if (taskOutputsMatch) {
+    if (taskOutputsMatch && method === "GET") {
         const [, projectId, taskId] = taskOutputsMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
         const outputs = db.outputs
             .filter((item) => item.projectId === projectId && item.taskId === taskId)
             .map((item) => clone(item.meta))
 
-        return ok({outputs})
+        return ok({
+            taskId,
+            outputs,
+        })
     }
 
-    const outputMetaMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/outputs\/([^/]+)$/)
-    if (outputMetaMatch && method === "GET") {
-        const [, projectId, outputId] = outputMetaMatch
-        const output = db.outputs.find(
-            (item) => item.projectId === projectId && item.meta.artifactId === outputId
-        )
+    const outputContentMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/outputs\/([^/]+)\/content$/
+    )
 
-        if (!output) {
-            return fail(404, {message: "Output не найден"})
-        }
-
-        return ok(clone(output.meta))
-    }
-
-    const outputContentMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/outputs\/([^/]+)\/content$/)
     if (outputContentMatch && method === "GET") {
         const [, projectId, outputId] = outputContentMatch
-        const output = db.outputs.find(
-            (item) => item.projectId === projectId && item.meta.artifactId === outputId
-        )
+        const access = requireProjectAccess(db, projectId)
 
-        if (!output) {
-            return fail(404, {message: "Output не найден"})
+        if (access.error) {
+            return access.error
         }
 
-        return ok(new Blob([output.content ?? ""], {type: output.meta.contentType || "application/octet-stream"}))
+        const record = db.outputs.find(
+            (item) => item.projectId === projectId && item.outputId === outputId
+        )
+
+        if (!record) {
+            return fail(404, {
+                message: "Output не найден",
+            })
+        }
+
+        return ok(makeBlob(record.content, record.meta?.contentType))
     }
 
-    const microtaskMatch = url.match(/^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/microtasks\/([^/]+)$/)
-    if (microtaskMatch && method === "GET") {
-        const [, projectId, taskId, microtaskId] = microtaskMatch
-        const microtask = db.microtasks.find(
-            (item) =>
-                item.projectId === projectId &&
-                item.taskId === taskId &&
-                item.microtaskId === microtaskId
-        )
+    const statsMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/stats\/([^/]+)$/
+    )
 
-        if (!microtask) {
-            return fail(404, {message: "Микрозадача не найдена"})
+    if (statsMatch && method === "GET") {
+        const [, projectId, taskId, executionTypeRaw] = statsMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
         }
 
-        return ok(clone(microtask))
+        const task = findTask(db, projectId, taskId)
+
+        if (!task) {
+            return fail(404, {
+                message: "Запуск не найден",
+            })
+        }
+
+        const routeExecutionType = normalizeExecutionType(executionTypeRaw)
+        const taskExecutionType = normalizeExecutionType(task.executionType)
+
+        if (routeExecutionType !== taskExecutionType) {
+            return failCode(
+                404,
+                routeExecutionType === "swarm-sync" ? "agentNotFound" : "microtaskNotFound",
+                "Engine не смог выполнить запрос"
+            )
+        }
+
+        return ok(buildTaskStatsPayload(db, task, routeExecutionType))
+    }
+
+    const newMicrotaskMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/microtasks\/stateless\/([^/]+)$/
+    )
+
+    if (newMicrotaskMatch && method === "GET") {
+        const [, projectId, taskId, microtaskId] = newMicrotaskMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const task = findTask(db, projectId, taskId)
+
+        if (!task || normalizeExecutionType(task.executionType) !== "stateless") {
+            return failCode(404, "microtaskNotFound", "Микротаска не найдена")
+        }
+
+        const microtask = findMicrotask(db, projectId, taskId, microtaskId)
+
+        if (!microtask) {
+            return failCode(404, "microtaskNotFound", "Микротаска не найдена")
+        }
+
+        return ok({
+            taskId,
+            microtaskId,
+            displayIndex: microtask.displayIndex,
+            status: normalizeEntityStatus(microtask.status),
+            createdAt: microtask.createdAt,
+            startedAt: microtask.startedAt,
+            finishedAt: microtask.finishedAt,
+            runDeadline: microtask.runDeadline,
+            runTimeoutSeconds: microtask.runTimeoutSeconds,
+            reason: microtask.reason ?? "",
+        })
+    }
+
+    const newAgentMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/agents\/([^/]+)$/
+    )
+
+    if (newAgentMatch && method === "GET") {
+        const [, projectId, taskId, agentId] = newAgentMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        return buildAgentPayload(db, projectId, taskId, agentId)
+    }
+
+    const legacyStateMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/([^/]+)\/state$/
+    )
+
+    if (legacyStateMatch && method === "GET") {
+        const [, projectId, executionTypeRaw, taskId] = legacyStateMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const task = findTask(db, projectId, taskId)
+
+        if (!task) {
+            return fail(404, {
+                message: "Запуск не найден",
+            })
+        }
+
+        return ok(buildLegacyTaskStatePayload(db, task, executionTypeRaw))
+    }
+
+    const legacyMicrotaskMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/([^/]+)\/microtasks\/([^/]+)$/
+    )
+
+    if (legacyMicrotaskMatch && method === "GET") {
+        const [, projectId, executionTypeRaw, taskId, microtaskId] = legacyMicrotaskMatch
+        const normalizedExecutionType = normalizeExecutionType(executionTypeRaw)
+
+        if (normalizedExecutionType === "swarm-sync") {
+            return ok({
+                taskId,
+                microtaskId,
+                displayIndex: Number(String(microtaskId).split("-").at(-1)) || 0,
+                status: "SUCCEEDED",
+                createdAt: nowIso(),
+                startedAt: nowIso(),
+                finishedAt: nowIso(),
+                runDeadline: nowIso(),
+                runTimeoutSeconds: 3600,
+                reason: "",
+                agentId: `${taskId}-agent-0`,
+                phase: "FINISH",
+                iteration: 2,
+            })
+        }
+
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const microtask = findMicrotask(db, projectId, taskId, microtaskId)
+
+        if (!microtask) {
+            return failCode(404, "microtaskNotFound", "Микротаска не найдена")
+        }
+
+        return ok({
+            taskId,
+            microtaskId,
+            displayIndex: microtask.displayIndex,
+            status: normalizeEntityStatus(microtask.status),
+            createdAt: microtask.createdAt,
+            startedAt: microtask.startedAt,
+            finishedAt: microtask.finishedAt,
+            runDeadline: microtask.runDeadline,
+            runTimeoutSeconds: microtask.runTimeoutSeconds,
+            reason: microtask.reason ?? "",
+        })
+    }
+
+    const legacyAgentMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/swarm\/([^/]+)\/agents\/([^/]+)$/
+    )
+
+    if (legacyAgentMatch && method === "GET") {
+        const [, projectId, taskId, agentId] = legacyAgentMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        return buildAgentPayload(db, projectId, taskId, agentId)
+    }
+
+    const taskMatch = url.match(
+        /^\/artifact-service\/api\/projects\/([^/]+)\/tasks\/([^/]+)$/
+    )
+
+    if (taskMatch) {
+        const [, projectId, taskId] = taskMatch
+        const access = requireProjectAccess(db, projectId)
+
+        if (access.error) {
+            return access.error
+        }
+
+        const task = findTask(db, projectId, taskId)
+
+        if (!task) {
+            return fail(404, {
+                message: "Запуск не найден",
+            })
+        }
+
+        if (method === "GET") {
+            return ok(buildTaskSummaryRecord(task))
+        }
+
+        if (method === "PATCH") {
+            task.status = "CANCELED"
+            task.taskStatus = "CANCELED"
+            task.finishedAt = task.finishedAt ?? nowIso()
+            task.doneAt = task.doneAt ?? nowIso()
+
+            writeDb(db)
+
+            return ok(buildTaskSummaryRecord(task))
+        }
     }
 
     return null
 }
+
 export const mockBaseQuery = async (args) => {
     await sleep(MOCK_LATENCY_MS)
 
-    const request = normalizeArgs(args)
     const db = readDb()
+    const normalizedArgs = normalizeArgs(args)
 
-    const authResult = handleIdentityService({db, method: request.method, url: request.url,
-        body: request.body, params: request.params})
-    if (authResult) {
-        return authResult
+    const context = {
+        db,
+        ...normalizedArgs,
     }
 
-    const projectResult = handleProjectService({db, method: request.method, url: request.url,
-        body: request.body, params: request.params,})
-    if (projectResult) {
-        return projectResult
+    const identityResponse = await handleIdentityService(context)
+
+    if (identityResponse) {
+        return identityResponse
     }
 
-    const artifactResult = handleArtifactService({db, method: request.method, url: request.url,
-        body: request.body, params: request.params})
-    if (artifactResult) {
-        return artifactResult
+    const projectResponse = await handleProjectService(context)
+
+    if (projectResponse) {
+        return projectResponse
+    }
+
+    const artifactResponse = await handleArtifactService(context)
+
+    if (artifactResponse) {
+        return artifactResponse
     }
 
     return fail(404, {
-        message: `Mock route not found: ${request.method} ${request.url}`,
+        message: `Mock endpoint не найден: ${normalizedArgs.method} ${normalizedArgs.url}`,
     })
 }

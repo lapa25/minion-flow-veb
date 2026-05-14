@@ -100,10 +100,9 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
     )
 
     const selectedConfigMeta = selectedConfigDetails ?? selectedConfig
-    const selectedRunType = selectedConfigDetails ? selectedConfigDetails.config.type : "stateless"
+    const selectedExecutionType = selectedConfigDetails?.config?.executionType ?? "stateless"
 
     const isLoadingOptions = isLoadingArtifacts || isLoadingInputs || isLoadingConfigs || isConfigDetailsFetching
-
     const hasOptionsError = Boolean(artifactsError || inputsError || configsError || isConfigDetailsError)
 
     const canSubmit = Boolean(effectiveJarId && effectiveInputId && effectiveConfigId &&
@@ -118,7 +117,7 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
             jarId: effectiveJarId,
             inputId: effectiveInputId,
             configId: effectiveConfigId,
-            type: selectedRunType
+            executionType: selectedExecutionType,
         }).unwrap()
 
         onClose?.()
@@ -148,13 +147,13 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
                 <div className="projectsPills">
                     <span className="pill">Config ID: {selectedConfigMeta?.configId ?? "—"}</span>
                     <span className="pill">Alias: {selectedConfigMeta?.alias ?? "—"}</span>
-                    <span className="pill">Тип запуска: {selectedRunType}</span>
+                    <span className="pill">Тип запуска: {selectedExecutionType}</span>
                 </div>
             ) : null}
             {hasOptionsError ? (
                 <ErrorBanner
                     title="Не удалось загрузить данные для запуска"
-                    message={getApiErrorMessage(artifactsError ?? inputsError ?? configsError ??  configDetailsError)}
+                    message={getApiErrorMessage(artifactsError ?? inputsError ?? configsError ?? configDetailsError)}
                     onRetry={async () => {
                         await Promise.all([reloadArtifacts(), reloadInputs(), reloadConfigs(),
                             effectiveConfigId ? refetchConfigDetails() : Promise.resolve()])

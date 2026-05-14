@@ -63,7 +63,7 @@ export const AgentDetailsPage = () => {
 
     const {data: runtimeState, isFetching: isRuntimeStateFetching, refetch: refetchRuntimeState,
     } = useGetTaskRuntimeStateQuery(
-        {projectId, taskId, type: "swarm"},
+        {projectId, taskId, executionType: "swarm-sync"},
         {
             skip: !projectId || !taskId,
             refetchOnMountOrArgChange: true,

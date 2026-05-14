@@ -17,4 +17,4 @@ export const getProjectRole = (members, currentUserId) => {
 }
 
 export const fromBackendProjectRole = (memberRole) =>
-    BACKEND_ROLE_TO_UI[memberRole] ?? "user"
+    BACKEND_ROLE_TO_UI[memberRole] ?? "none"

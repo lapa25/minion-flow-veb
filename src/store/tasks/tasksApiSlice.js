@@ -1,8 +1,8 @@
 import {apiSlice} from "../../api/apiSlice.js"
-import {buildTaskProgressWsUrl} from "../../utils/ws.js"
+import {createArtifactWebSocket} from "../../utils/ws.js"
 
 const USE_MOCK = String(import.meta.env.VITE_MOCK_API ?? "").toLowerCase() === "true"
-const MOCK_DB_KEY = "mf_mock_db_v2"
+const MOCK_DB_KEY = "mf_mock_db_v3"
 
 const updateMockTaskRecord = (taskId, patch) => {
     try {
@@ -43,31 +43,33 @@ const updateMockMicrotaskRecord = (microtaskId, patch) => {
 
 const nowIso = () => new Date().toISOString()
 
-const createTaskProgressInitialState = (taskId, type = "stateless") => ({
+const createTaskProgressInitialState = (taskId, executionType = "stateless") => ({
     taskId,
-    type,
-    status: null,
-    lastSeq: 0,
+    executionType,
+    taskStatus: null,
+    seq: 0,
+    kind: null,
     summary: null,
     config: null,
     microtasksByIndex: {},
     agentStatesByIndex: {},
     connectionStatus: "idle",
     finishedAt: null,
-    doneAt: null
+    doneAt: null,
+    wsError: null,
 })
 
 const getProgressEntitySpec = (payload) => {
     if (Array.isArray(payload?.agentStates)) {
         return {
-            type: "swarm",
+            executionType: "swarm-sync",
             items: payload.agentStates,
             idKey: "agentId",
             mapKey: "agentStatesByIndex",
         }
     }
     return {
-        type: "stateless",
+        executionType: "stateless",
         items: Array.isArray(payload?.microtasks) ? payload.microtasks : [],
         idKey: "microtaskId",
         mapKey: "microtasksByIndex",
@@ -79,7 +81,7 @@ const applyTaskProgressMessage = (draft, payload) => {
         return
     }
     const nextSeq = Number(payload.seq ?? 0)
-    if (Number.isFinite(nextSeq) && nextSeq > 0 && nextSeq <= Number(draft.lastSeq ?? 0)) {
+    if (Number.isFinite(nextSeq) && nextSeq > 0 && nextSeq <= Number(draft.seq ?? 0)) {
         return
     }
     const isPatch = payload.kind === "patch"
@@ -89,9 +91,10 @@ const applyTaskProgressMessage = (draft, payload) => {
         draft.agentStatesByIndex = {}
         draft.config = payload.config ?? draft.config ?? null
     }
-    draft.type = spec.type
-    draft.lastSeq = Number.isFinite(nextSeq) ? nextSeq : draft.lastSeq
-    draft.status = payload.status ?? draft.status
+    draft.executionType = spec.executionType
+    draft.seq = Number.isFinite(nextSeq) ? nextSeq : draft.seq
+    draft.kind = payload.kind ?? draft.kind
+    draft.taskStatus = payload.taskStatus ?? draft.taskStatus
     draft.summary = payload.summary ?? draft.summary
     draft.finishedAt = payload.finishedAt ?? draft.finishedAt
     draft.doneAt = payload.doneAt ?? draft.doneAt
@@ -108,13 +111,13 @@ const applyTaskProgressMessage = (draft, payload) => {
             ...item,
             [spec.idKey]: item?.[spec.idKey] ?? prevItem?.[spec.idKey] ?? "",
             displayIndex,
-            status: item?.status ?? prevItem.status ?? "CREATED",
+            status: item?.status ?? prevItem.status ?? "QUEUED",
         }
     })
 }
 
-const createMockRuntimeState = ({taskId, type}) => {
-    if (type === "swarm") {
+const createMockRuntimeState = ({taskId, executionType}) => {
+    if (executionType === "swarm-sync") {
         const total = 96
         const iterations = 18
 
@@ -122,7 +125,7 @@ const createMockRuntimeState = ({taskId, type}) => {
             taskId,
             seq: 0,
             kind: "snapshot",
-            status: "RUNNING",
+            taskStatus: "RUNNING",
             summary: {
                 total,
                 queued: 21,
@@ -132,10 +135,10 @@ const createMockRuntimeState = ({taskId, type}) => {
                 timedOut: 4,
                 tasksPerSec: 0.07,
                 currentIteration: iterations,
-                currentPhase: "COMPLETE",
+                currentPhase: "STEP",
             },
             config: {
-                type: "swarm",
+                executionType: "swarm-sync",
                 swarm: {
                     iterations,
                     agentCount: total,
@@ -162,11 +165,11 @@ const createMockRuntimeState = ({taskId, type}) => {
                 status:
                     index < 49 ? "SUCCEEDED" :
                         index < 56 ? "FAILED" :
-                            index < 60 ? "TIME_OUT" :
+                            index < 60 ? "TIMED_OUT" :
                                 index < 75 ? "RUNNING" :
                                     "QUEUED",
                 currentIteration: iterations,
-                currentPhase: "COMPLETE",
+                currentPhase: "STEP",
             })),
         }
     }
@@ -175,7 +178,7 @@ const createMockRuntimeState = ({taskId, type}) => {
         taskId,
         seq: 0,
         kind: "snapshot",
-        status: "RUNNING",
+        taskStatus: "RUNNING",
         summary: {
             total: 40,
             queued: 25,
@@ -191,36 +194,25 @@ const createMockRuntimeState = ({taskId, type}) => {
             status:
                 index < 8 ? "SUCCEEDED" :
                     index < 10 ? "FAILED" :
-                        index === 10 ? "TIME_OUT" :
+                        index === 10 ? "TIMED_OUT" :
                             index < 15 ? "RUNNING" :
                                 "QUEUED",
         })),
     }
 }
 
-const createMockRuntimeMicrotask = ({taskId, microtaskId, type}) => {
-    const isSwarm = type === "swarm"
-
-    return {
-        taskId,
-        microtaskId,
-        displayIndex: Number(String(microtaskId).split("-").at(-1)) || 0,
-        status: "SUCCEEDED",
-        createdAt: nowIso(),
-        startedAt: nowIso(),
-        finishedAt: nowIso(),
-        runDeadline: nowIso(),
-        runTimeoutSeconds: isSwarm ? 3600 : 60,
-        reason: "",
-        ...(isSwarm
-            ? {
-                agentId: `${taskId}-agent-0`,
-                phase: "FINISH",
-                iteration: 2,
-            }
-            : {}),
-    }
-}
+const createMockRuntimeMicrotask = ({taskId, microtaskId}) => ({
+    taskId,
+    microtaskId,
+    displayIndex: Number(String(microtaskId).split("-").at(-1)) || 0,
+    status: "SUCCEEDED",
+    createdAt: nowIso(),
+    startedAt: nowIso(),
+    finishedAt: nowIso(),
+    runDeadline: nowIso(),
+    runTimeoutSeconds: 60,
+    reason: "",
+})
 
 const createMockSwarmAgent = ({taskId, agentId}) => {
     const agentIndex = Number(String(agentId).split("-").at(-1)) || 0
@@ -237,12 +229,12 @@ const createMockSwarmAgent = ({taskId, agentId}) => {
             seed: agentIndex,
         }),
         stateData: JSON.stringify({
-            phase: "COMPLETE",
+            phase: "FINISH",
             iteration: 18,
             localBest: 84.83,
             topology: "RING",
         }),
-        statePhase: "COMPLETE",
+        statePhase: "FINISH",
         stateIteration: 18,
     }
 }
@@ -304,23 +296,24 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
         }),
 
         getTaskRuntimeState: build.query({
-            async queryFn({projectId, taskId, type}, _api, _extraOptions, baseQuery) {
+            async queryFn({projectId, taskId, executionType = "stateless"}, _api, _extraOptions, baseQuery) {
                 if (USE_MOCK) {
-                    return {data: createMockRuntimeState({taskId, type})}
+                    return {data: createMockRuntimeState({taskId, executionType})}
                 }
+                const statsType = executionType === "swarm-sync" ? "swarm" : "stateless"
                 return baseQuery({
-                    url: `/artifact-service/api/projects/${projectId}/tasks/${type}/${taskId}/state`,
+                    url: `/artifact-service/api/projects/${projectId}/tasks/${taskId}/stats/${statsType}`,
                 })
             },
         }),
 
         getTaskRuntimeMicrotask: build.query({
-            async queryFn({projectId, taskId, microtaskId, type}, _api, _extraOptions, baseQuery) {
+            async queryFn({projectId, taskId, microtaskId}, _api, _extraOptions, baseQuery) {
                 if (USE_MOCK) {
-                    return {data: createMockRuntimeMicrotask({taskId, microtaskId, type})}
+                    return {data: createMockRuntimeMicrotask({taskId, microtaskId})}
                 }
                 return baseQuery({
-                    url: `/artifact-service/api/projects/${projectId}/tasks/${type}/${taskId}/microtasks/${microtaskId}`,
+                    url: `/artifact-service/api/projects/${projectId}/tasks/${taskId}/microtasks/stateless/${microtaskId}`,
                 })
             },
         }),
@@ -331,21 +324,24 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                     return {data: createMockSwarmAgent({taskId, agentId})}
                 }
                 return baseQuery({
-                    url: `/artifact-service/api/projects/${projectId}/tasks/swarm/${taskId}/agents/${agentId}`,
+                    url: `/artifact-service/api/projects/${projectId}/tasks/${taskId}/agents/${agentId}`,
                 })
             },
         }),
 
         getTaskProgressStream: build.query({
-            queryFn: ({taskId, type = "stateless"}) => ({
-                data: createTaskProgressInitialState(taskId, type),
+            queryFn: ({taskId, executionType = "stateless"}) => ({
+                data: createTaskProgressInitialState(taskId, executionType),
             }),
             keepUnusedDataFor: 0,
-            async onCacheEntryAdded({taskId, type = "stateless"}, {updateCachedData, cacheDataLoaded, cacheEntryRemoved}) {
+            async onCacheEntryAdded(
+                {taskId, executionType = "stateless"},
+                {getState, updateCachedData, cacheDataLoaded, cacheEntryRemoved}
+            ) {
                 await cacheDataLoaded
 
                 if (USE_MOCK) {
-                    if (type === "swarm") {
+                    if (executionType === "swarm-sync") {
                         let isStopped = false
                         let seq = 1
                         let patchTimer = null
@@ -354,7 +350,7 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                         const iterations = 18
 
                         const config = {
-                            type: "swarm",
+                            executionType: "swarm-sync",
                             swarm: {
                                 iterations,
                                 agentCount: total,
@@ -382,23 +378,23 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                             status:
                                 i < 49 ? "SUCCEEDED" :
                                     i < 56 ? "FAILED" :
-                                        i < 60 ? "TIME_OUT" :
+                                        i < 60 ? "TIMED_OUT" :
                                             i < 75 ? "RUNNING" :
                                                 "QUEUED",
                             currentIteration: iterations,
-                            currentPhase: "COMPLETE",
+                            currentPhase: "STEP",
                         }))
 
                         const buildSummary = () => ({
                             total,
-                            queued: state.filter((item) => item.status === "QUEUED" || item.status === "CREATED").length,
+                            queued: state.filter((item) => item.status === "QUEUED").length,
                             running: state.filter((item) => item.status === "RUNNING" || item.status === "STARTING").length,
                             succeeded: state.filter((item) => item.status === "SUCCEEDED").length,
                             failed: state.filter((item) => item.status === "FAILED").length,
-                            timedOut: state.filter((item) => item.status === "TIME_OUT" || item.status === "TIMED_OUT").length,
+                            timedOut: state.filter((item) => item.status === "TIMED_OUT").length,
                             tasksPerSec: 0.07,
                             currentIteration: iterations,
-                            currentPhase: "COMPLETE",
+                            currentPhase: "STEP",
                         })
 
                         const toIndexMap = () =>
@@ -406,14 +402,16 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
 
                         updateCachedData((draft) => {
                             draft.connectionStatus = "open"
-                            draft.lastSeq = seq
-                            draft.type = "swarm"
-                            draft.status = "RUNNING"
+                            draft.seq = seq
+                            draft.kind = "snapshot"
+                            draft.executionType = "swarm-sync"
+                            draft.taskStatus = "RUNNING"
                             draft.summary = buildSummary()
                             draft.config = config
                             draft.agentStatesByIndex = toIndexMap()
                             draft.finishedAt = null
                             draft.doneAt = null
+                            draft.wsError = null
                         })
 
                         patchTimer = window.setInterval(() => {
@@ -429,6 +427,7 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                                 .map((item) => ({
                                     ...item,
                                     status: "SUCCEEDED",
+                                    currentPhase: "FINISH",
                                 }))
 
                             const changedIndexes = new Set(changed.map((item) => item.displayIndex))
@@ -442,6 +441,7 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                                     return {
                                         ...item,
                                         status: "RUNNING",
+                                        currentPhase: "STEP",
                                     }
                                 }
 
@@ -452,9 +452,12 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
 
                             updateCachedData((draft) => {
                                 draft.connectionStatus = "open"
-                                draft.lastSeq = seq
-                                draft.status = "RUNNING"
+                                draft.seq = seq
+                                draft.kind = "patch"
+                                draft.executionType = "swarm-sync"
+                                draft.taskStatus = "RUNNING"
                                 draft.summary = summary
+                                draft.wsError = null
 
                                 state.forEach((item) => {
                                     draft.agentStatesByIndex[item.displayIndex] = item
@@ -485,12 +488,12 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                     const total = 40
 
                     const config = {
-                        type: "stateless",
+                        executionType: "stateless",
                         scheduling: {
                             mode: "asp",
                             maxParallelism: 200,
                             minParallelism: 1,
-                            parallelism: undefined
+                            parallelism: undefined,
                         },
                         worker: {
                             bound: "cpu",
@@ -521,8 +524,8 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                     let state = Array.from({length: total}, (_, i) => ({
                         microtaskId: `${taskId}-microtask-${i}`,
                         displayIndex: i,
-                        status: i === 0 ? "RUNNING" : "CREATED",
-                        started_at: i === 0 ? new Date().toISOString() : null,
+                        status: i === 0 ? "RUNNING" : "QUEUED",
+                        started_at: i === 0 ? nowIso() : null,
                         finished_at: null,
                     }))
 
@@ -545,16 +548,14 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                                 case "FAILED":
                                     summary.failed += 1
                                     break
-                                case "TIME_OUT":
                                 case "TIMED_OUT":
                                     summary.timedOut += 1
                                     break
                                 case "RUNNING":
+                                case "STARTING":
                                     summary.running += 1
                                     break
-                                case "CREATED":
                                 case "QUEUED":
-                                case "STARTING":
                                 default:
                                     summary.queued += 1
                                     break
@@ -578,14 +579,16 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
 
                     updateCachedData((draft) => {
                         draft.connectionStatus = "open"
-                        draft.lastSeq = seq
-                        draft.type = "stateless"
-                        draft.status = "RUNNING"
+                        draft.seq = seq
+                        draft.kind = "snapshot"
+                        draft.executionType = "stateless"
+                        draft.taskStatus = "RUNNING"
                         draft.summary = buildSummary()
                         draft.config = config
                         draft.microtasksByIndex = toIndexMap()
                         draft.finishedAt = null
                         draft.doneAt = null
+                        draft.wsError = null
                     })
 
                     patchTimer = window.setInterval(() => {
@@ -594,27 +597,28 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                         }
 
                         const runningIndex = state.findIndex((item) => item.status === "RUNNING")
-                        const nextCreatedIndex = state.findIndex((item) => item.status === "CREATED")
+                        const nextQueuedIndex = state.findIndex((item) => item.status === "QUEUED")
                         const changed = []
 
                         if (runningIndex !== -1) {
                             const current = state[runningIndex]
 
                             let nextStatus = "SUCCEEDED"
+
                             if (failureIndexes.has(current.displayIndex)) {
                                 nextStatus = "FAILED"
                             } else if (timeoutIndexes.has(current.displayIndex)) {
-                                nextStatus = "TIME_OUT"
+                                nextStatus = "TIMED_OUT"
                             }
 
-                            const finishedAtValue = new Date().toISOString()
+                            const currentFinishedAtValue = nowIso()
 
                             state = state.map((item, index) =>
                                 index === runningIndex
                                     ? {
                                         ...item,
                                         status: nextStatus,
-                                        finished_at: finishedAtValue,
+                                        finished_at: currentFinishedAtValue,
                                     }
                                     : item
                             )
@@ -628,11 +632,11 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                             changed.push({...state[runningIndex]})
                         }
 
-                        if (nextCreatedIndex !== -1) {
-                            const startedAtValue = new Date().toISOString()
+                        if (nextQueuedIndex !== -1) {
+                            const startedAtValue = nowIso()
 
                             state = state.map((item, index) =>
-                                index === nextCreatedIndex
+                                index === nextQueuedIndex
                                     ? {
                                         ...item,
                                         status: "RUNNING",
@@ -641,12 +645,12 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                                     : item
                             )
 
-                            updateMockMicrotaskRecord(state[nextCreatedIndex].microtaskId, {
+                            updateMockMicrotaskRecord(state[nextQueuedIndex].microtaskId, {
                                 status: "RUNNING",
-                                started_at: state[nextCreatedIndex].started_at,
+                                started_at: state[nextQueuedIndex].started_at,
                             })
 
-                            changed.push({...state[nextCreatedIndex]})
+                            changed.push({...state[nextQueuedIndex]})
                         }
 
                         const summary = buildSummary()
@@ -654,11 +658,13 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                         const nextTaskStatus = doneCount >= total ? "FINISHED" : "RUNNING"
 
                         if (nextTaskStatus === "FINISHED" && !finishedAtValue) {
-                            finishedAtValue = new Date().toISOString()
+                            finishedAtValue = nowIso()
 
                             updateMockTaskRecord(taskId, {
                                 status: "FINISHED",
+                                taskStatus: "FINISHED",
                                 finishedAt: finishedAtValue,
+                                doneAt: doneAtValue,
                             })
                         }
 
@@ -666,11 +672,14 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
 
                         updateCachedData((draft) => {
                             draft.connectionStatus = "open"
-                            draft.lastSeq = seq
-                            draft.status = nextTaskStatus
+                            draft.seq = seq
+                            draft.kind = "patch"
+                            draft.executionType = "stateless"
+                            draft.taskStatus = nextTaskStatus
                             draft.summary = summary
                             draft.finishedAt = finishedAtValue ?? draft.finishedAt
                             draft.doneAt = doneAtValue ?? draft.doneAt
+                            draft.wsError = null
 
                             changed.forEach((item) => {
                                 draft.microtasksByIndex[item.displayIndex] = {
@@ -689,10 +698,11 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                                     return
                                 }
 
-                                doneAtValue = new Date().toISOString()
+                                doneAtValue = nowIso()
 
                                 updateMockTaskRecord(taskId, {
                                     status: "DONE",
+                                    taskStatus: "DONE",
                                     finishedAt: finishedAtValue,
                                     doneAt: doneAtValue,
                                 })
@@ -701,10 +711,13 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
 
                                 updateCachedData((draft) => {
                                     draft.connectionStatus = "open"
-                                    draft.lastSeq = seq
-                                    draft.status = "DONE"
+                                    draft.seq = seq
+                                    draft.kind = "patch"
+                                    draft.executionType = "stateless"
+                                    draft.taskStatus = "DONE"
                                     draft.finishedAt = finishedAtValue
                                     draft.doneAt = doneAtValue
+                                    draft.wsError = null
                                     draft.summary = {
                                         ...buildSummary(),
                                         running: 0,
@@ -720,9 +733,11 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                         await cacheEntryRemoved
                     } finally {
                         isStopped = true
+
                         if (patchTimer) {
                             window.clearInterval(patchTimer)
                         }
+
                         if (finishTimer) {
                             window.clearTimeout(finishTimer)
                         }
@@ -736,33 +751,82 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                 let reconnectAttempt = 0
                 let isStopped = false
 
+                const channel = `tasks/${taskId}/state`
+
                 const connect = () => {
                     if (isStopped || !taskId) {
                         return
                     }
+
+                    const token = getState()?.auth?.accessToken
+
+                    if (!token) {
+                        updateCachedData((draft) => {
+                            draft.connectionStatus = "error"
+                            draft.wsError = "Нет access token для WebSocket"
+                        })
+                        return
+                    }
+
                     updateCachedData((draft) => {
                         draft.connectionStatus = reconnectAttempt > 0 ? "reconnecting" : "connecting"
+                        draft.wsError = null
                     })
-                    socket = new WebSocket(buildTaskProgressWsUrl(taskId))
+
+                    socket = createArtifactWebSocket(token)
 
                     socket.addEventListener("open", () => {
                         reconnectAttempt = 0
+
+                        socket.send(JSON.stringify({
+                            op: "subscribe",
+                            channel,
+                        }))
+
                         updateCachedData((draft) => {
                             draft.connectionStatus = "open"
+                            draft.wsError = null
                         })
                     })
 
                     socket.addEventListener("message", (event) => {
                         try {
-                            const payload = JSON.parse(event.data)
+                            const message = JSON.parse(event.data)
+
                             updateCachedData((draft) => {
-                                draft.connectionStatus = "open"
-                                applyTaskProgressMessage(draft, payload)
+                                if (message.channel && message.channel !== channel) {
+                                    return
+                                }
+
+                                if (message.type === "event") {
+                                    draft.connectionStatus = "open"
+                                    draft.wsError = null
+                                    applyTaskProgressMessage(draft, message.payload)
+                                    return
+                                }
+
+                                if (message.type === "subscribed") {
+                                    draft.connectionStatus = "open"
+                                    draft.wsError = null
+                                    return
+                                }
+
+                                if (message.type === "unsubscribed") {
+                                    draft.connectionStatus = "closed"
+                                    return
+                                }
+
+                                if (message.type === "error") {
+                                    draft.connectionStatus = "error"
+                                    draft.wsError = message.message ?? message.code ?? "WebSocket error"
+                                }
                             })
                         } catch (error) {
                             console.error("[task progress ws] parse/apply error", error)
+
                             updateCachedData((draft) => {
                                 draft.connectionStatus = "error"
+                                draft.wsError = "Не удалось разобрать WebSocket сообщение"
                             })
                         }
                     })
@@ -770,6 +834,7 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                     socket.addEventListener("error", () => {
                         updateCachedData((draft) => {
                             draft.connectionStatus = "error"
+                            draft.wsError = "WebSocket connection error"
                         })
                     })
 
@@ -777,11 +842,18 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                         if (isStopped) {
                             return
                         }
+
                         updateCachedData((draft) => {
                             draft.connectionStatus = "closed"
                         })
-                        ++reconnectAttempt;
-                        const delay = Math.min(1000 * 2 ** Math.min(reconnectAttempt, 4), 10000)
+
+                        reconnectAttempt += 1
+
+                        const delay = Math.min(
+                            1000 * 2 ** Math.min(reconnectAttempt, 4),
+                            10000
+                        )
+
                         reconnectTimer = window.setTimeout(() => {
                             connect()
                         }, delay)
@@ -795,9 +867,14 @@ export const tasksApiSlice = apiSlice.injectEndpoints({
                     if (reconnectTimer) {
                         window.clearTimeout(reconnectTimer)
                     }
-                    if (socket) {
-                        socket.close()
+
+                    if (socket?.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            op: "unsubscribe",
+                            channel,
+                        }))
                     }
+                    socket?.close()
                 }
             },
         }),

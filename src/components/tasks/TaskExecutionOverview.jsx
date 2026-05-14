@@ -31,7 +31,7 @@ const getSegments = (summary) => {
         {key: "succeeded", status: "SUCCEEDED", value: succeeded, label: "Успешно"},
         {key: "running", status: "RUNNING", value: running, label: "Исполняется"},
         {key: "failed", status: "FAILED", value: failed, label: "Упала"},
-        {key: "timedOut", status: "TIME_OUT", value: timedOut, label: "Таймаут"},
+        {key: "timedOut", status: "TIMED_OUT", value: timedOut, label: "Таймаут"},
         {key: "queued", status: "QUEUED", value: queued, label: "В очереди"},
     ].filter((segment) => segment.value > 0)
         .map((segment) => ({
@@ -55,8 +55,8 @@ const MetricCard = ({label, value, toneClassName = ""}) => (
     </div>
 )
 
-export const TaskExecutionOverview = ({projectId, taskId, type, summary, items, config}) => {
-    const isSwarm = type === "swarm"
+export const TaskExecutionOverview = ({projectId, taskId, executionType, summary, items, config}) => {
+    const isSwarm = executionType === "swarm-sync"
     const progressPercent = getProgressPercent(summary)
     const segments = getSegments(summary)
     const entityType = isSwarm ? "agent" : "microtask"
@@ -95,7 +95,7 @@ export const TaskExecutionOverview = ({projectId, taskId, type, summary, items, 
                     <span>Успешно</span>
                 </span>
                 {asInt(summary?.timedOut, 0) > 0 ? (
-                    <span className={`projectsLegendChip ${getStatusToneClassName("TIME_OUT")}`}>
+                    <span className={`projectsLegendChip ${getStatusToneClassName("TIMED_OUT")}`}>
                         <span className="projectsLegendDot" />
                         <span>Таймаут</span>
                     </span>
@@ -148,7 +148,7 @@ export const TaskExecutionOverview = ({projectId, taskId, type, summary, items, 
                 <MetricCard
                     label="Timed out"
                     value={summary?.timedOut ?? 0}
-                    toneClassName={getStatusToneClassName("TIME_OUT")}
+                    toneClassName={getStatusToneClassName("TIMED_OUT")}
                 />
                 <MetricCard
                     label="Running"

@@ -39,6 +39,8 @@ const TASKS_SORTERS = {
     done_asc: (a, b) =>
         String(a.doneAt ?? "").localeCompare(String(b.doneAt ?? "")),
 }
+const getTaskStatus = (task) => task?.taskStatus ?? task?.status
+
 const filterTasks = (items, {q, status}) => {
     let list = [...items]
     const needle = String(q ?? "").trim().toLowerCase()
@@ -52,7 +54,7 @@ const filterTasks = (items, {q, status}) => {
         )
     }
     if (status !== "all") {
-        list = list.filter((item) => item.status === status)
+        list = list.filter((item) => getTaskStatus(item) === status)
     }
     return list
 }
@@ -204,7 +206,7 @@ const ProjectTasksContent = ({projectId, project, projectRole, permissions, isRe
                                         {task.taskId}
                                     </Link>
                                 </td>
-                                <td>{task.status ?? "—"}</td>
+                                <td>{getTaskStatus(task) ?? "—"}</td>
                                 <td>{task.jarAlias ?? "—"}</td>
                                 <td>{task.inputAlias ?? "—"}</td>
                                 <td>{task.configAlias ?? "—"}</td>

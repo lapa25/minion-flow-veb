@@ -12,12 +12,11 @@ export const TASK_STATUS_LABELS = {
 
 export const MICROTASK_STATUS_LABELS = {
     QUEUED: "В очереди",
-    CREATED: "Создана",
     STARTING: "Запускается",
     RUNNING: "Выполняется",
     SUCCEEDED: "Успешно",
-    TIME_OUT: "Таймаут",
     FAILED: "Ошибка",
+    TIMED_OUT: "Таймаут",
 }
 
 const STATUS_TONE_CLASS_MAP = {
@@ -51,10 +50,9 @@ export const getMicrotaskStatusLabel = (status, taskStatus) => {
     if (!status) {
         return "—"
     }
-    if (status === "CREATED" && taskStatus === "CANCELED") {
+    if (status === "QUEUED" && taskStatus === "CANCELED") {
         return "Не запущена (запуск отменен)"
     }
     return MICROTASK_STATUS_LABELS[status] ?? status
 }
-export const TERMINAL_TASK_STATUSES = ["FINISHED", "TIME_OUT",
-    "CANCELED", "FAILED", "DONE", "SUCCEEDED"]
+export const TERMINAL_TASK_STATUSES = ["FINISHED", "TIME_OUT", "CANCELED", "FAILED", "DONE"]

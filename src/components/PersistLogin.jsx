@@ -5,7 +5,7 @@ import {selectCurrentToken, selectCurrentUser} from "../store/auth/authSelectors
 import { FullPageSpinner } from "./ui/FullPageSpinner.jsx";
 import { getApiErrorMessage } from "../utils/getApiErrorMessage.js";
 import {useEffect, useState} from "react";
-import {setCredentials} from "../store/auth/authSlice.js";
+import {setCredentials, tokenReceived} from "../store/auth/authSlice.js";
 
 export const PersistLogin = () => {
     const dispatch = useDispatch()
@@ -35,24 +35,24 @@ export const PersistLogin = () => {
                 setRestoreError(null)
             }
             try {
-                const refreshData = await refreshSession().unwrap()
-                const nextToken = refreshData?.accessJWT
+                if (!accessToken) {
+                    const refreshData = await refreshSession().unwrap()
+                    const nextToken = refreshData?.accessJWT
 
-                if (!nextToken) {
-                    if (!cancelled) {
-                        setRestoreError(new Error("Не удалось восстановить access token"))
-                        setIsReady(false)
+                    if (!nextToken) {
+                        throw new Error("Не удалось восстановить access token");
                     }
-                    return
+                    dispatch(tokenReceived({ accessToken: nextToken }));
+                    return;
                 }
-                const meData = await triggerMe().unwrap()
-                dispatch(
-                    setCredentials({
-                        user: meData,
-                        accessToken: nextToken,
-                    })
-                )
+                const meData = await triggerMe().unwrap();
                 if (!cancelled) {
+                    dispatch(
+                        setCredentials({
+                            user: meData,
+                            accessToken,
+                        })
+                    )
                     setRestoreError(null)
                     setIsReady(true)
                 }

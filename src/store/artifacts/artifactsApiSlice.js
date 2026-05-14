@@ -45,7 +45,7 @@ export const artifactsApiSlice = apiSlice.injectEndpoints({
         updateProjectArtifactMeta: build.mutation({
             query: ({projectId, artifactId, alias}) => ({
                 url: `/artifact-service/api/projects/${projectId}/artifacts/${artifactId}`,
-                method: "PATCH", body: JSON.stringify(alias),
+                method: "PATCH", body: JSON.stringify({alias}),
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -91,7 +91,13 @@ export const artifactsApiSlice = apiSlice.injectEndpoints({
     }),
 })
 
-export const {useGetProjectArtifactsQuery, useLazyGetProjectArtifactsQuery,
-    useGetProjectArtifactQuery, useCreateProjectArtifactMutation, useUpdateProjectArtifactMetaMutation,
-    useUpdateProjectArtifactContentMutation, useDeleteProjectArtifactMutation,
-    useLazyGetProjectArtifactContentQuery} = artifactsApiSlice
+export const {
+    useGetProjectArtifactsQuery,
+    useLazyGetProjectArtifactsQuery,
+    useGetProjectArtifactQuery,
+    useCreateProjectArtifactMutation,
+    useUpdateProjectArtifactMetaMutation,
+    useUpdateProjectArtifactContentMutation,
+    useDeleteProjectArtifactMutation,
+    useLazyGetProjectArtifactContentQuery,
+} = artifactsApiSlice

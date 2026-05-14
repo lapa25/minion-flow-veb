@@ -32,15 +32,16 @@ const toIndexMap = (items = []) =>
         items.filter((item) => Number.isFinite(Number(item?.displayIndex)))
              .map((item) => [Number(item.displayIndex), item]))
 
-const buildProgressSnapshot = ({taskId, payload, type, fallbackConfig}) => {
+const buildProgressSnapshot = ({taskId, payload, executionType, fallbackConfig}) => {
     if (!payload) {
         return null
     }
     return {
         taskId,
-        type,
-        status: payload.status ?? null,
-        lastSeq: Number(payload.seq ?? 0),
+        executionType,
+        taskStatus: payload.taskStatus ?? null,
+        seq: Number(payload.seq ?? 0),
+        kind: payload.kind ?? null,
         summary: payload.summary ?? null,
         config: payload.config ?? fallbackConfig ?? null,
         microtasksByIndex: toIndexMap(payload.microtasks),
@@ -48,6 +49,7 @@ const buildProgressSnapshot = ({taskId, payload, type, fallbackConfig}) => {
         connectionStatus: "snapshot",
         finishedAt: payload.finishedAt ?? null,
         doneAt: payload.doneAt ?? null,
+        wsError: null,
     }
 }
 
@@ -61,7 +63,7 @@ const mergeProgressStates = (snapshot, live) => {
     return {
         ...snapshot,
         ...live,
-        status: live.status ?? snapshot.status,
+        taskStatus: live.taskStatus ?? snapshot.taskStatus,
         summary: live.summary ?? snapshot.summary,
         config: live.config ?? snapshot.config,
         finishedAt: live.finishedAt ?? snapshot.finishedAt,
@@ -82,7 +84,8 @@ const getOrderedItems = (map) =>
         (a, b) => Number(a?.displayIndex ?? 0) - Number(b?.displayIndex ?? 0)
     )
 
-const RunOverviewCard = ({project, task, runType, effectiveStatus, effectiveFinishedAt, effectiveDoneAt, initiatorUsername}) => (
+const RunOverviewCard = ({project, task, executionType, effectiveStatus, effectiveFinishedAt,
+                             effectiveDoneAt, initiatorUsername}) => (
     <PageCard title="Общая информация">
         <div className="projectsPills">
             <span className={`pill ${getStatusToneClassName(effectiveStatus)}`}>
@@ -93,7 +96,7 @@ const RunOverviewCard = ({project, task, runType, effectiveStatus, effectiveFini
         <div className="projectsInfoGrid">
             <InfoTile label="Проект" value={project?.projectName} />
             <InfoTile label="JAR файл" value={task?.jarAlias} />
-            <InfoTile label="Тип запуска" value={runType} />
+            <InfoTile label="Тип запуска" value={executionType} />
             <InfoTile label="Датасет" value={task?.inputAlias} />
             <InfoTile label="Config" value={task?.configAlias} />
             <InfoTile label="Инициатор" value={initiatorUsername} />
@@ -122,12 +125,12 @@ export const TaskRunDetailsPage = () => {
     )
 
     const taskConfig = getTaskConfig(task)
-    const runType = task ? task.type : "stateless"
-    const isSwarm = runType === "swarm"
+    const executionType = task?.executionType ?? taskConfig?.executionType ?? "stateless"
+    const isSwarm = executionType === "swarm-sync"
 
     const {data: runtimeState, isFetching: isRuntimeStateFetching,
         refetch: refetchRuntimeState} = useGetTaskRuntimeStateQuery(
-        {projectId, taskId, type: runType},
+        {projectId, taskId, executionType},
         {
             skip: !projectId || !taskId || !task,
             refetchOnMountOrArgChange: true,
@@ -143,7 +146,7 @@ export const TaskRunDetailsPage = () => {
     )
 
     const {data: liveProgress} = useGetTaskProgressStreamQuery(
-        {taskId, type: runType},
+        {taskId, executionType},
         {
             skip: !taskId || !task,
         }
@@ -161,10 +164,10 @@ export const TaskRunDetailsPage = () => {
             buildProgressSnapshot({
                 taskId,
                 payload: runtimeState,
-                type: runType,
+                executionType,
                 fallbackConfig: taskConfig,
             }),
-        [taskId, runtimeState, runType, taskConfig]
+        [taskId, runtimeState, executionType, taskConfig]
     )
 
     const progress = useMemo(
@@ -196,7 +199,7 @@ export const TaskRunDetailsPage = () => {
         [isSwarm, progress]
     )
 
-    const effectiveStatus = progress?.status ?? task?.status
+    const effectiveStatus = progress?.taskStatus ?? task?.taskStatus ?? task?.status
     const isCancelable = Boolean(
         effectiveStatus && !TERMINAL_TASK_STATUSES.includes(effectiveStatus)
     )
@@ -288,12 +291,18 @@ export const TaskRunDetailsPage = () => {
                                     message={getApiErrorMessage(cancelError)}
                                 />
                             ) : null}
+                            {progress?.wsError ? (
+                                <ErrorBanner
+                                    title="Ошибка WebSocket"
+                                    message={progress.wsError}
+                                />
+                            ) : null}
                             {isSwarm ? (
                                 <div className="projectsRunCardsGrid">
                                     <RunOverviewCard
                                         project={project}
                                         task={task}
-                                        runType={runType}
+                                        executionType={executionType}
                                         effectiveStatus={effectiveStatus}
                                         effectiveFinishedAt={effectiveFinishedAt}
                                         effectiveDoneAt={effectiveDoneAt}
@@ -320,11 +329,13 @@ export const TaskRunDetailsPage = () => {
                                     <RunOverviewCard
                                         project={project}
                                         task={task}
-                                        runType={runType}
+                                        executionType={executionType}
                                         effectiveStatus={effectiveStatus}
                                         effectiveFinishedAt={effectiveFinishedAt}
                                         effectiveDoneAt={effectiveDoneAt}
+                                        initiatorUsername={initiatorUsername}
                                     />
+
                                     <PageCard title="Конфигурация">
                                         <div className="projectsInfoGrid">
                                             <InfoTile label="Microtasks" value={progress?.summary?.total} />
@@ -366,7 +377,7 @@ export const TaskRunDetailsPage = () => {
                                 <TaskExecutionOverview
                                     projectId={projectId}
                                     taskId={taskId}
-                                    type={runType}
+                                    executionType={executionType}
                                     summary={progress?.summary}
                                     items={executionItems}
                                     config={launchSnapshot}

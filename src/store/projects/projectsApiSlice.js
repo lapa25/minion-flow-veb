@@ -38,7 +38,7 @@ export const projectsApiSlice = apiSlice.injectEndpoints({
         }),
         deleteProject: build.mutation({
             query: (projectId) => ({
-                url: `/projects/${projectId}`, method: "DELETE"}),
+                url: `/project-service/projects/${projectId}`, method: "DELETE"}),
             invalidatesTags: (_result, _err, projectId) => [
                 { type: "Projects", id: "LIST" },
                 { type: "Project", id: projectId },

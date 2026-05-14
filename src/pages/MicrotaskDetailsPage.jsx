@@ -7,7 +7,7 @@ import {ProjectPermissionsBoundary} from "../components/guards/ProjectPermission
 import {LiveLogsConsole} from "../components/microtasks/MicrotaskLogsConsole.jsx"
 import {useGetProjectQuery} from "../store/projects/projectsApiSlice.js"
 import {useGetTaskRuntimeMicrotaskQuery} from "../store/tasks/tasksApiSlice.js"
-import {useGetMicrotaskLogsStreamQuery} from "../store/microtasks/microtasksApiSlice.js"
+import {useGetMicrotaskLogsBacklogQuery, useGetMicrotaskLogsStreamQuery} from "../store/microtasks/microtasksApiSlice.js"
 import {getApiErrorMessage} from "../utils/getApiErrorMessage.js"
 import {formatDateTime} from "../utils/datetime.js"
 import {getMicrotaskStatusLabel, getStatusToneClassName} from "../utils/statuses.js"
@@ -24,9 +24,18 @@ export const MicrotaskDetailsPage = () => {
 
     const {data: microtask, isFetching: isMicrotaskFetching, isError: isMicrotaskError,
         error: microtaskError, refetch: refetchMicrotask} = useGetTaskRuntimeMicrotaskQuery(
-        {projectId, taskId, microtaskId, type: "stateless"},
+        {projectId, taskId, microtaskId},
         {
             skip: !projectId || !taskId || !microtaskId,
+            refetchOnMountOrArgChange: true,
+        }
+    )
+
+    const {data: logsBacklog, isFetching: isLogsBacklogFetching, isError: isLogsBacklogError,
+        error: logsBacklogError, refetch: refetchLogsBacklog} = useGetMicrotaskLogsBacklogQuery(
+        {projectId, microtaskId, afterSeq: -1, limit: 1000},
+        {
+            skip: !projectId || !microtaskId,
             refetchOnMountOrArgChange: true,
         }
     )
@@ -38,15 +47,36 @@ export const MicrotaskDetailsPage = () => {
         }
     )
 
-    const orderedLogs = useMemo(
-        () =>
-            Object.values(logsState?.logsBySeq ?? {}).sort(
-                (a, b) => Number(a.seq ?? 0) - Number(b.seq ?? 0)
-            ),
-        [logsState]
-    )
+    const orderedLogs = useMemo(() => {
+        const logsBySeq = {};
 
-    const effectiveStatus = logsState?.status ?? microtask?.status
+        (logsBacklog?.logs ?? []).forEach((item) => {
+            const seq = Number(item?.seq)
+
+            if (Number.isFinite(seq)) {
+                logsBySeq[seq] = {
+                    seq,
+                    loglevel: item?.loglevel ?? "INFO",
+                    timestamp: item?.timestamp ?? "",
+                    message: item?.message ?? "",
+                }
+            }
+        })
+
+        Object.values(logsState?.logsBySeq ?? {}).forEach((item) => {
+            const seq = Number(item?.seq)
+
+            if (Number.isFinite(seq)) {
+                logsBySeq[seq] = item
+            }
+        })
+
+        return Object.values(logsBySeq).sort(
+            (a, b) => Number(a.seq ?? 0) - Number(b.seq ?? 0)
+        )
+    }, [logsBacklog, logsState])
+
+    const effectiveStatus = microtask?.status
 
     return (
         <QueryBoundary
@@ -83,7 +113,7 @@ export const MicrotaskDetailsPage = () => {
                             />
                             <PageCard title="Основное">
                                 <div className="projectsPills">
-                                <span className={`pill ${getStatusToneClassName(effectiveStatus)}`}>
+                                    <span className={`pill ${getStatusToneClassName(effectiveStatus)}`}>
                                         Статус: {getMicrotaskStatusLabel(effectiveStatus)}
                                     </span>
                                 </div>
@@ -92,16 +122,38 @@ export const MicrotaskDetailsPage = () => {
                                     <InfoTile label="Task ID" value={taskId} />
                                     <InfoTile label="Microtask ID" value={microtask?.microtaskId ?? microtaskId} />
                                     <InfoTile label="Display index" value={microtask?.displayIndex} />
-                                    <InfoTile label="Создана" value={formatDateTime(microtask?.createdAt ?? microtask?.created_at)} />
-                                    <InfoTile label="Старт" value={formatDateTime(microtask?.startedAt ?? microtask?.started_at)} />
-                                    <InfoTile label="Финиш" value={formatDateTime(microtask?.finishedAt ?? microtask?.finished_at)} />
+                                    <InfoTile label="Создана" value={formatDateTime(microtask?.createdAt)} />
+                                    <InfoTile label="Старт" value={formatDateTime(microtask?.startedAt)} />
+                                    <InfoTile label="Финиш" value={formatDateTime(microtask?.finishedAt)} />
                                     <InfoTile label="Deadline" value={formatDateTime(microtask?.runDeadline)} />
                                     <InfoTile label="Timeout seconds" value={microtask?.runTimeoutSeconds} />
                                     <InfoTile label="Reason" value={microtask?.reason || "—"} />
                                 </div>
                             </PageCard>
                             <PageCard title="Live-логи микрозадачи">
+                                {isLogsBacklogError ? (
+                                    <p className="projectsHint">
+                                        Не удалось загрузить backlog логов: {getApiErrorMessage(logsBacklogError)}
+                                    </p>
+                                ) : null}
+                                {logsState?.wsError ? (
+                                    <p className="projectsHint">
+                                        Ошибка WebSocket логов: {logsState.wsError}
+                                    </p>
+                                ) : null}
+                                {isLogsBacklogFetching && !orderedLogs.length ? (
+                                    <p className="projectsHint">Загружаем backlog логов...</p>
+                                ) : null}
                                 <LiveLogsConsole logs={orderedLogs} />
+                                {isLogsBacklogError ? (
+                                    <button
+                                        className="projectsBtn projectsBtnSecondary"
+                                        type="button"
+                                        onClick={refetchLogsBacklog}
+                                    >
+                                        Повторить загрузку backlog
+                                    </button>
+                                ) : null}
                             </PageCard>
                         </section>
                     </QueryBoundary>

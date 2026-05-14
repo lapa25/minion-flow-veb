@@ -28,7 +28,7 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
 
     const executionType = useWatch({
         control: form.control,
-        name: "config.type",
+        name: "config.executionType",
     })
 
     const schedulingMode = useWatch({
@@ -90,12 +90,12 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                         <select
                             className="projectsSelect"
                             disabled={isView || isSubmitting}
-                            {...form.register("config.type")}>
+                            {...form.register("config.executionType")}>
                             <option value="stateless">stateless</option>
-                            <option value="swarm">swarm</option>
+                            <option value="swarm-sync">swarm-sync</option>
                         </select>
-                        <p className={errorMessage("config.type") ? "instructions instructionsError" : ""}>
-                            {errorMessage("config.type")}
+                        <p className={errorMessage("config.executionType") ? "instructions instructionsError" : ""}>
+                            {errorMessage("config.executionType")}
                         </p>
                     </label>
                 </div>
@@ -177,7 +177,7 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                 )}
             </div>
 
-            {executionType === "swarm" ? (
+            {executionType === "swarm-sync" ? (
                 <div className="projectsCard">
                     <h3>Swarm</h3>
                     <div className="projectsTwoCols">

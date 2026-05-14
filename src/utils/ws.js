@@ -1,7 +1,18 @@
-const WS_URL = String(import.meta.env.VITE_WS_URL ?? "").replace(/\/+$/, "")
+const getDefaultWsUrl = () => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+    return `${protocol}//${window.location.host}`
+}
 
-export const buildTaskProgressWsUrl = (taskId) =>
-    `${WS_URL}/artifact-service/ws/tasks/${taskId}/progress`
+const WS_URL = String(import.meta.env.VITE_WS_URL || getDefaultWsUrl()).replace(/\/+$/, "")
 
-export const buildMicrotaskLogsWsUrl = (microtaskId) =>
-    `${WS_URL}/artifact-service/ws/microtasks/${microtaskId}/logs`
+export const buildArtifactWsUrl = () => `${WS_URL}/artifact-service/ws/v1`
+
+export const createArtifactWebSocket = (jwt) => {
+    const tokenCarrier = encodeURIComponent(
+        `quarkus-http-upgrade#Authorization#Bearer ${jwt}`
+    )
+    return new WebSocket(buildArtifactWsUrl(), [
+        "bearer-token-carrier",
+        tokenCarrier,
+    ])
+}

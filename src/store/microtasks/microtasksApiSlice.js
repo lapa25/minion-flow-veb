@@ -1,21 +1,20 @@
 import {apiSlice} from "../../api/apiSlice.js"
-import {buildMicrotaskLogsWsUrl} from "../../utils/ws.js"
+import {createArtifactWebSocket} from "../../utils/ws.js"
 
 const USE_MOCK = String(import.meta.env.VITE_MOCK_API ?? "").toLowerCase() === "true"
 
 const createMicrotaskLogsInitialState = (microtaskId) => ({
     microtaskId,
-    status: null,
     logsBySeq: {},
-    lastSeq: 0,
-    connectionStatus: "idle"
+    seq: -1,
+    connectionStatus: "idle",
+    wsError: null,
 })
 
 const applyMicrotaskLogsMessage = (draft, payload) => {
     if (!payload || payload.microtaskId !== draft.microtaskId) {
         return
     }
-    draft.status = payload.status ?? draft.status
     if (!Array.isArray(payload.logs)) {
         return
     }
@@ -32,18 +31,61 @@ const applyMicrotaskLogsMessage = (draft, payload) => {
                 message: item?.message ?? "",
             }
         }
-        if (seq > Number(draft.lastSeq ?? 0)) {
-            draft.lastSeq = seq
+        if (seq > Number(draft.seq ?? -1)) {
+            draft.seq = seq
         }
     })
+}
+
+const createMockLogsBacklog = ({microtaskId, afterSeq = -1, limit = 1000}) => {
+    const startSeq = Number(afterSeq)
+    const safeAfterSeq = Number.isFinite(startSeq) ? startSeq : -1
+    const safeLimit = Math.max(1, Number(limit ?? 1000) || 1000)
+
+    const allLogs = Array.from({length: 12}, (_, index) => ({
+        loglevel: index >= 10 ? "WARN" : "INFO",
+        seq: index,
+        timestamp: new Date(Date.now() - (12 - index) * 1000).toISOString(),
+        message:
+            index === 0 ? `microtask=${microtaskId} state=RUNNING` :
+                index === 1 ? "loading dataset row" :
+                    index === 2 ? "initializing worker" :
+                        index < 10 ? `processing chunk ${index - 2}` :
+                            index === 10 ? "finalizing result" :
+                                "completed successfully",
+    }))
+    return {
+        microtaskId,
+        logs: allLogs
+            .filter((item) => safeAfterSeq === -1 || item.seq > safeAfterSeq)
+            .slice(0, safeLimit),
+    }
 }
 
 export const microtasksApiSlice = apiSlice.injectEndpoints({
     endpoints: (build) => ({
         getProjectMicrotask: build.query({
             query: ({projectId, taskId, microtaskId}) => ({
-                url: `/artifact-service/api/projects/${projectId}/tasks/${taskId}/microtasks/${microtaskId}`
+                url: `/artifact-service/api/projects/${projectId}/tasks/${taskId}/microtasks/stateless/${microtaskId}`,
             }),
+        }),
+
+        getMicrotaskLogsBacklog: build.query({
+            async queryFn({projectId, microtaskId, afterSeq = -1, limit = 1000}, _api, _extraOptions, baseQuery) {
+                if (USE_MOCK) {
+                    return {
+                        data: createMockLogsBacklog({
+                            microtaskId,
+                            afterSeq,
+                            limit,
+                        }),
+                    }
+                }
+                return baseQuery({
+                    url: `/artifact-service/api/projects/${projectId}/logs/${microtaskId}`,
+                    params: {afterSeq, limit},
+                })
+            },
         }),
 
         getMicrotaskLogsStream: build.query({
@@ -51,19 +93,23 @@ export const microtasksApiSlice = apiSlice.injectEndpoints({
                 data: createMicrotaskLogsInitialState(microtaskId),
             }),
             keepUnusedDataFor: 0,
-            async onCacheEntryAdded({microtaskId}, {updateCachedData, cacheDataLoaded, cacheEntryRemoved}) {
+            async onCacheEntryAdded(
+                {microtaskId},
+                {getState, updateCachedData, cacheDataLoaded, cacheEntryRemoved}
+            ) {
                 await cacheDataLoaded
 
                 if (USE_MOCK) {
-                    let seq = 0
+                    let seq = 12
                     let step = 0
                     let timer = null
                     let isStopped = false
 
-                    const pushLogs = (status, messages) => {
+                    const pushLogs = (messages) => {
                         updateCachedData((draft) => {
                             draft.connectionStatus = "open"
-                            draft.status = status
+                            draft.wsError = null
+
                             messages.forEach((message) => {
                                 seq += 1
                                 draft.logsBySeq[seq] = {
@@ -72,52 +118,27 @@ export const microtasksApiSlice = apiSlice.injectEndpoints({
                                     timestamp: new Date().toISOString(),
                                     message,
                                 }
-                                draft.lastSeq = seq
+                                draft.seq = seq
                             })
                         })
                     }
-
-                    const shouldFail = microtaskId.endsWith("-24") || microtaskId.endsWith("-25")
-                        || microtaskId.endsWith("-26")
-                    const shouldTimeout = microtaskId.endsWith("-27")
-
-                    pushLogs("RUNNING", [
-                        `microtask=${microtaskId} state=RUNNING`,
-                        "loading dataset row",
-                        "initializing worker",
+                    pushLogs([
+                        "live stream connected",
                     ])
-
                     timer = window.setInterval(() => {
                         if (isStopped) {
                             return
                         }
                         step += 1
                         if (step < 4) {
-                            pushLogs("RUNNING", [
-                                `processing chunk ${step}`,
+                            pushLogs([
+                                `live processing chunk ${step}`,
                                 `intermediate metric=${Math.round(Math.random() * 1000)}`,
                             ])
                             return
                         }
-                        if (shouldFail) {
-                            pushLogs("FAILED", [
-                                "worker reported execution error",
-                                "microtask state=FAILED",
-                            ])
-                            window.clearInterval(timer)
-                            return
-                        }
-                        if (shouldTimeout) {
-                            pushLogs("TIME_OUT", [
-                                "execution timed out",
-                                "microtask state=TIME_OUT",
-                            ])
-                            window.clearInterval(timer)
-                            return
-                        }
-                        pushLogs("SUCCEEDED", [
-                            "completed successfully",
-                            "microtask state=SUCCEEDED",
+                        pushLogs([
+                            "live completed successfully",
                         ])
                         window.clearInterval(timer)
                     }, 600)
@@ -137,32 +158,81 @@ export const microtasksApiSlice = apiSlice.injectEndpoints({
                 let reconnectAttempt = 0
                 let isStopped = false
 
+                const channel = `microtasks/${microtaskId}/logs`
+
                 const connect = () => {
                     if (isStopped || !microtaskId) {
                         return
                     }
+                    const token = getState()?.auth?.accessToken
+
+                    if (!token) {
+                        updateCachedData((draft) => {
+                            draft.connectionStatus = "error"
+                            draft.wsError = "Нет access token для WebSocket"
+                        })
+                        return
+                    }
+
                     updateCachedData((draft) => {
                         draft.connectionStatus = reconnectAttempt > 0 ? "reconnecting" : "connecting"
+                        draft.wsError = null
                     })
-                    socket = new WebSocket(buildMicrotaskLogsWsUrl(microtaskId))
+
+                    socket = createArtifactWebSocket(token)
 
                     socket.addEventListener("open", () => {
                         reconnectAttempt = 0
+
+                        socket.send(JSON.stringify({
+                            op: "subscribe",
+                            channel,
+                        }))
+
                         updateCachedData((draft) => {
                             draft.connectionStatus = "open"
+                            draft.wsError = null
                         })
                     })
 
                     socket.addEventListener("message", (event) => {
                         try {
-                            const payload = JSON.parse(event.data)
+                            const message = JSON.parse(event.data)
+
                             updateCachedData((draft) => {
-                                draft.connectionStatus = "open"
-                                applyMicrotaskLogsMessage(draft, payload)
+                                if (message.channel && message.channel !== channel) {
+                                    return
+                                }
+
+                                if (message.type === "event") {
+                                    draft.connectionStatus = "open"
+                                    draft.wsError = null
+                                    applyMicrotaskLogsMessage(draft, message.payload)
+                                    return
+                                }
+
+                                if (message.type === "subscribed") {
+                                    draft.connectionStatus = "open"
+                                    draft.wsError = null
+                                    return
+                                }
+
+                                if (message.type === "unsubscribed") {
+                                    draft.connectionStatus = "closed"
+                                    return
+                                }
+
+                                if (message.type === "error") {
+                                    draft.connectionStatus = "error"
+                                    draft.wsError = message.message ?? message.code ?? "WebSocket error"
+                                }
                             })
-                        } catch {
+                        } catch (error) {
+                            console.error("[microtask logs ws] parse/apply error", error)
+
                             updateCachedData((draft) => {
                                 draft.connectionStatus = "error"
+                                draft.wsError = "Не удалось разобрать WebSocket сообщение"
                             })
                         }
                     })
@@ -170,6 +240,7 @@ export const microtasksApiSlice = apiSlice.injectEndpoints({
                     socket.addEventListener("error", () => {
                         updateCachedData((draft) => {
                             draft.connectionStatus = "error"
+                            draft.wsError = "WebSocket connection error"
                         })
                     })
 
@@ -177,11 +248,18 @@ export const microtasksApiSlice = apiSlice.injectEndpoints({
                         if (isStopped) {
                             return
                         }
+
                         updateCachedData((draft) => {
                             draft.connectionStatus = "closed"
                         })
-                        ++reconnectAttempt
-                        const delay = Math.min(1000 * 2 ** Math.min(reconnectAttempt, 4), 10000)
+
+                        reconnectAttempt += 1
+
+                        const delay = Math.min(
+                            1000 * 2 ** Math.min(reconnectAttempt, 4),
+                            10000
+                        )
+
                         reconnectTimer = window.setTimeout(() => {
                             connect()
                         }, delay)
@@ -195,13 +273,22 @@ export const microtasksApiSlice = apiSlice.injectEndpoints({
                     if (reconnectTimer) {
                         window.clearTimeout(reconnectTimer)
                     }
-                    if (socket) {
-                        socket.close()
+
+                    if (socket?.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            op: "unsubscribe",
+                            channel,
+                        }))
                     }
+                    socket?.close()
                 }
             },
         }),
     }),
 })
 
-export const {useGetProjectMicrotaskQuery, useGetMicrotaskLogsStreamQuery} = microtasksApiSlice
+export const {
+    useGetProjectMicrotaskQuery,
+    useGetMicrotaskLogsBacklogQuery,
+    useGetMicrotaskLogsStreamQuery,
+} = microtasksApiSlice
