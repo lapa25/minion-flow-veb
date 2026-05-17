@@ -100,7 +100,7 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
     )
 
     const selectedConfigMeta = selectedConfigDetails ?? selectedConfig
-    const selectedExecutionType = selectedConfigDetails?.config?.executionType ?? "stateless"
+    const selectedExecutionType = selectedConfigDetails?.config?.type ?? "stateless"
 
     const isLoadingOptions = isLoadingArtifacts || isLoadingInputs || isLoadingConfigs || isConfigDetailsFetching
     const hasOptionsError = Boolean(artifactsError || inputsError || configsError || isConfigDetailsError)
@@ -117,7 +117,6 @@ export const LaunchTaskDialog = ({isOpen, projectId, configId: presetConfigId = 
             jarId: effectiveJarId,
             inputId: effectiveInputId,
             configId: effectiveConfigId,
-            executionType: selectedExecutionType,
         }).unwrap()
 
         onClose?.()

@@ -26,9 +26,9 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
         control: form.control,
     })
 
-    const executionType = useWatch({
+    const type = useWatch({
         control: form.control,
-        name: "config.executionType",
+        name: "config.type",
     })
 
     const schedulingMode = useWatch({
@@ -90,12 +90,12 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                         <select
                             className="projectsSelect"
                             disabled={isView || isSubmitting}
-                            {...form.register("config.executionType")}>
+                            {...form.register("config.type")}>
                             <option value="stateless">stateless</option>
                             <option value="swarm-sync">swarm-sync</option>
                         </select>
-                        <p className={errorMessage("config.executionType") ? "instructions instructionsError" : ""}>
-                            {errorMessage("config.executionType")}
+                        <p className={errorMessage("config.type") ? "instructions instructionsError" : ""}>
+                            {errorMessage("config.type")}
                         </p>
                     </label>
                 </div>
@@ -110,7 +110,7 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                             className="projectsSelect"
                             disabled={isView || isSubmitting}
                             {...form.register("config.scheduling.mode")}>
-                            <option value="asp">asp</option>
+                            <option value="asap">asap</option>
                             <option value="fixed">fixed</option>
                         </select>
                     </label>
@@ -177,7 +177,7 @@ export const ConfigForm = ({mode = "create", initialValues = configFormDefaultVa
                 )}
             </div>
 
-            {executionType === "swarm-sync" ? (
+            {type === "swarm-sync" ? (
                 <div className="projectsCard">
                     <h3>Swarm</h3>
                     <div className="projectsTwoCols">

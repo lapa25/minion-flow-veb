@@ -8,7 +8,8 @@ export const loginSchema = z.object({
 }).required()
 
 export const registerSchema = z.object({
-    username: z.string().min(1, "Должно быть заполнено"),
+    username: z.string().min(3, "Минимум 3 символа").max(52, "Максимум 52 символа")
+        .regex(/^[\p{L}0-9_-]+$/u, "Можно использовать только буквы, цифры, _ и -"),
     email: z.email(" Должен содержать символ @ и домен (например, gmail.com)"),
     password: z.string().regex(passwordRule,
         {error: "Минимум 8 символов. Должен содержать: заглавную и строчную буквы, цифру"}),
@@ -44,5 +45,6 @@ export const changePasswordSchema = z.object({
 })
 
 export const updateUsernameSchema = z.object({
-    newUsername: z.string().min(1, "Должно быть заполнено"),
+    newUsername: z.string().min(3, "Минимум 3 символа").max(52, "Максимум 52 символа")
+    .regex(/^[\p{L}0-9_-]+$/u, "Можно использовать только буквы, цифры, _ и -"),
 }).required()

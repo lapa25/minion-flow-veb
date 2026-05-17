@@ -3,7 +3,7 @@ import {z} from "zod"
 const CPU_PATTERN = /^(\d+m|\d+(?:\.\d+)?)$/i
 const MEMORY_PATTERN = /^\d+(?:Mi|Gi)$/i
 
-const SCHEDULING_MODES = ["asp", "fixed"]
+const SCHEDULING_MODES = ["asap", "fixed"]
 const EXECUTION_TYPES = ["stateless", "swarm-sync"]
 const WORKER_BOUNDS = ["cpu", "io"]
 const TOPOLOGY_TYPES = ["ring"]
@@ -72,8 +72,8 @@ const swarmSchema = z.object({
 }).optional()
 
 const executionConfigSchema = z.object({
-    executionType: z.enum(EXECUTION_TYPES, {
-        error: () => ({message: "executionType должен быть stateless или swarm-sync"}),
+    type: z.enum(EXECUTION_TYPES, {
+        error: () => ({message: "type должен быть stateless или swarm-sync"}),
     }).optional(),
 
     swarm: swarmSchema,
@@ -138,19 +138,19 @@ const validateConfigForm = (data, form) => {
     }
 
     const scheduling = config.scheduling
-    if (scheduling?.mode === "asp") {
+    if (scheduling?.mode === "asap") {
         if (scheduling.minParallelism === undefined) {
             form.addIssue({
                 code: "custom",
                 path: ["config", "scheduling", "minParallelism"],
-                message: "Для mode=asp укажите minParallelism"
+                message: "Для mode=asap укажите minParallelism"
             })
         }
         if (scheduling.maxParallelism === undefined) {
             form.addIssue({
                 code: "custom",
                 path: ["config", "scheduling", "maxParallelism"],
-                message: "Для mode=asp укажите maxParallelism"
+                message: "Для mode=asap укажите maxParallelism"
             })
         }
         if (scheduling.minParallelism !== undefined &&
@@ -170,7 +170,7 @@ const validateConfigForm = (data, form) => {
             message: "Для mode=fixed укажите parallelism"
         })
     }
-    if (config.executionType === "swarm-sync") {
+    if (config.type === "swarm-sync") {
         if (config.swarm?.iterations === undefined) {
             form.addIssue({
                 code: "custom",
@@ -207,7 +207,7 @@ export const configFormSchema = baseConfigFormSchema.superRefine(validateConfigF
 export const configFormDefaultValues = {
     alias: "",
     config: {
-        executionType: "stateless",
+        type: "stateless",
         swarm: {
             iterations: 10,
             agentCount: 10000,
@@ -217,7 +217,7 @@ export const configFormDefaultValues = {
             },
         },
         scheduling: {
-            mode: "asp",
+            mode: "asap",
             batchSize: 12,
             maxParallelism: 200,
             minParallelism: 1,
@@ -291,9 +291,9 @@ export const toConfigFormValues = (dto = {}) => {
 export const toConfigPayload = (values) => {
     const data = configFormSchema.parse(values)
     const config = data.config
-    const scheduling = config.scheduling.mode === "asp"
+    const scheduling = config.scheduling.mode === "asap"
         ? {
-            mode: "asp",
+            mode: "asap",
             batchSize: config.scheduling.batchSize,
             maxParallelism: config.scheduling.maxParallelism,
             minParallelism: config.scheduling.minParallelism,
@@ -307,8 +307,8 @@ export const toConfigPayload = (values) => {
         alias: data.alias,
         config: config
             ? {
-                executionType: config.executionType,
-                swarm: config.executionType === "swarm-sync"
+                type: config.type,
+                swarm: config.type === "swarm-sync"
                     ? {
                         iterations: config.swarm?.iterations,
                         agentCount: config.swarm?.agentCount,
